@@ -1,6 +1,8 @@
 ---
 title: "Kyphosis"
-format: html
+format:
+  html:
+    embed-resources: true
 ---
 ## Example
 
