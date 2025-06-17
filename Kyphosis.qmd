@@ -1,0 +1,248 @@
+---
+title: "Kyphosis"
+format: html
+---
+## Example
+
+```{r}
+library(rpart)
+library(rpart.plot)
+head(kyphosis)
+source("cost_complexity_measure.R")
+```
+
+```{r}
+node.fun.class.dev <- function(x, labs, digits, varlen) {
+  stats <- get.class.stats(x)
+  paste(stats$ylevels[1], stats$ylevels[2], "\n", stats$n.per.lev[,1], "      ", stats$n.per.lev[,2], 
+        "\ndev: ", x$frame$dev)    
+}
+
+node.fun.gt <- function(x, labs, digits, varlen) {
+  paste("g(t):", round(x$frame$gt, 2))
+}
+
+node.fun.gt.calc <- function(x, labs, digits, varlen) x$frame$label
+
+node.label <- function(x, labs, digits, varlen) x$frame$label
+
+node.fun.cp <- function(x, labs, digits, varlen) {
+  paste("dev:", x$frame$dev, "\ncp:", round(x$frame$complexity, 3))
+}
+
+node.fun.cp.gt <- function(x, labs, digits, varlen) {
+  if_else(x$frame$var != "<leaf>",
+  paste("g(t):", round(x$frame$gt, 2), "\ncp:", round(x$frame$complexity, 2)), "leaf")
+}
+
+split.order <- function(x, labs, digits, varlen) {
+  l <- label_as_integer(x$frame$var)
+  ifelse(l == "<leaf>", "leaf", paste0("split #", l))
+}
+
+split.order.dev <- function(x, labs, digits, varlen) {
+  l <- label_as_integer(x$frame$var)
+  l <- ifelse(l == "<leaf>", "leaf", paste0("split #", l))
+  paste(l, "\ndev: ", x$frame$dev)
+}
+```
+
+
+
+::: {.pt7}
+
+`Kyphosis` -- type of deformation `absent` or `present` after surgery
+
+`Age` -- in months
+
+`Number` -- the number of vertebrae involved
+
+`Start` -- the number of the first (topmost) vertebra operated on
+
+:::
+
+
+
+## Gini index
+
+
+With no splits,
+
+$p_1$ = 64/81, $1 - p_1$ = 17/81
+
+$p_2$ = 17/81, $1 - p_2$ = 64/81
+
+
+$\Sigma_{k=1}^K \hat{p}_{mk}(1-\hat{p}_{mk}) =$
+
+$\frac{64}{81} \cdot \frac{17}{81} + \frac{17}{81} \cdot \frac{64}{81} = .332$
+
+## After one split
+
+Impurity of node #2:
+
+$\frac{56}{62} \cdot \frac{6}{62} + \frac{6}{62} \cdot \frac{56}{62} = .175$
+
+Impurity of node #3:
+
+$\frac{8}{19} \cdot \frac{11}{19} + \frac{11}{19} \cdot \frac{8}{19} = .488$
+
+Total impurity is weighted by $n$:
+
+$\frac{62}{81} \cdot .175 + \frac{19}{81} \cdot .488 = .248$
+
+Impurity reduction: 
+
+$.332 - .248 = .084$
+
+
+This split is chosen since it maximizes impurity reduction.
+
+## Growing the tree
+
+```{r}
+kmod1 <- rpart(Kyphosis ~ Age + Number + Start,
+              data = kyphosis, cp = 0, minbucket = 1,
+              minsplit = 1)
+kmod <- kmod1
+
+node.fun.class <- function(x, labs, digits, varlen) {
+  stats <- get.class.stats(x)
+  paste(stats$ylevels[1], stats$ylevels[2], "\n", stats$n.per.lev[,1], "      ", stats$n.per.lev[,2])    
+}
+
+prp(kmod, extra = 1, type = 2,node.fun = node.fun.class.dev, 
+    nn = TRUE, box.palette = "auto")
+
+colors <- vector_colors(1:nrow(kmod$frame), "white", "#B6BCF1")
+
+colors[kmod$frame$var == "<leaf>"] <- "#00A86B50"
+
+#prp(kmod, extra = 1, type = 2,node.fun = split.order,
+ #   nn = TRUE, box.col = colors)
+
+prp(kmod, extra = 1, type = 2,node.fun = split.order.dev, 
+    nn = TRUE, box.col = colors,
+    main = "Binary Recursive Splitting")
+
+splitorder <- as.numeric(rownames(kmod$frame)[kmod$frame$var != "<leaf>"])
+```
+
+Split order by node: `r splitorder`
+
+Since we set `cp = 0` we know that the tree will have 16 splits.
+
+This information is captured in the last line of the `cptable` returned from `rpart`:
+
+```{r}
+tail(kmod$cptable, 1)
+```
+
+
+Now we will find the minimum complexity parameter needed to prune any nodes of the tree. To do so we use a method called minimum cost complexity pruning, which looks for the weakest link, defined as the split which renders the smallest reduction in some function g(t). 
+
+
+## Pruning the tree
+
+For pruning purposes, **rpart** uses the misclassification rate, not the Gini index.
+
+Every split in the large tree is evaluated for the reduction in misclassified cases (deviance) *per split*. 
+
+For example, let's consider the root node (#1). The deviance is 17.  All of the terminal nodes (leaves) have deviance of zero, so the total reduction is 17 / 16 or 1.065. 
+
+Now let's find the deviance reduction per node for all splits:
+
+
+```{r}
+#| message: false
+#| warning: false
+library(tidyverse)
+kmod$frame <- annotate_gt(kmod)
+
+kmod$frame$nn <- as.numeric(rownames(kmod$frame))
+
+
+get_descendants <- function(node, all_nodes) {
+    # Recursive function to collect all descendants
+    children <- c(2 * node, 2 * node + 1)
+    descendants <- children[children %in% all_nodes]
+    for (child in descendants) {
+        descendants <- c(descendants, get_descendants(child, all_nodes))
+    }
+    return(descendants)
+}
+
+
+gt_calc_colors <- function(mod) {
+  if (nrow(mod$frame) == 1) {
+    "#00A86B50"
+  } else {
+    mingt <- min(mod$frame$gt, na.rm = TRUE)
+    mingt_nodes <- na.omit(mod$frame$nn[mod$frame$gt == mingt])
+    mingt_node_cp <- mod$frame$complexity[mod$frame$nn == mingt_nodes][1]
+    to_be_pruned <- unique(unlist(
+      lapply(mingt_nodes, get_descendants, all_nodes = mod$frame$nn)
+    ))
+    case_when(
+      mod$frame$nn %in% to_be_pruned ~ "pink",
+      mod$frame$gt == mingt ~ "lightblue",
+      !is.na(mod$frame$gt) ~ "cornflowerblue",
+      .default = "#00A86B50"
+    )
+  }
+}
+
+gt_calc_label <- function(mod) {
+  if (nrow(mod$frame) == 1) {
+    paste("   leaf   \ndev: ", mod$frame$dev)
+  } else {
+    mingt <- min(mod$frame$gt, na.rm = TRUE)
+    label <- ifelse(
+      mod$frame$var != "<leaf>",
+      paste0("g(t) = (", mod$frame$dev, "-",
+             mod$frame$subdev, ") / \n (",
+             mod$frame$numsplits, "-1) = ",
+             round(mod$frame$gt, 2)),
+      paste("   leaf   \ndev: ", mod$frame$dev)
+    )
+    label <- case_when(mod$frame$gt == mingt ~ paste(label, "\n*minimum"),
+                       .default = label)
+    label
+  }
+}
+
+kmod$frame$label <- gt_calc_label(kmod)
+colors <- gt_calc_colors(kmod)
+
+
+prp(kmod, extra = 1, type = 2,
+    node.fun = node.label, 
+    nn = TRUE, box.col = colors,
+    main = "Cost Complexity")
+```
+
+The weakest links have cost complexity of `0.5`. In **rpart** these are scaled so that the root node has an error of 1, accomplished by dividing all values of `g(t)` by the deviance of the root node. In this case it is `17`, so the scaled complexity parameter (henceforth, cp) is `0.5/17 = 0.0294`. If we set cp to anything greater than this value, the tree will be pruned between nodes 11 and 22 and between 58 and 117. (Those links as well as the one between 22 and 44 are tied for weakest link.) Refering to the tree above, all of the nodes in pink would be removed.
+
+We have discovered that a tree with cp > 0.02941176 will have 10 splits:
+
+```{r}
+tail(kmod$cptable, 2)
+```
+
+Now we need to recalculate g(t) for the pruned tree:
+
+```{r}
+n <- nrow(kmod$cptable)
+for (i in n:1) {
+  kmod <- prune(kmod, kmod$cptable[i])
+  kmod$frame <- annotate_gt(kmod)
+  kmod$frame$nn <- as.numeric(rownames(kmod$frame))
+  colors <- gt_calc_colors(kmod)
+  kmod$frame$label <- gt_calc_label(kmod)
+  prp(kmod, extra = 1, type = 2,
+    node.fun = node.fun.gt.calc, 
+    nn = TRUE, box.col = colors,
+    main = "Cost Complexity")
+  }
+```
+
