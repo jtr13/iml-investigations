@@ -1,0 +1,461 @@
+---
+title: "Tree Algorithm"
+author: "Luying Shu"
+execute:
+  echo: true
+format:
+  html:
+    fig-width: 6
+    fig-height: 4
+    out-width: 60%
+    embed-resources: true
+---
+# Modern Tree Algorithms (1980s)
+## CART (Classification and Regression Trees)
+**Work:**  
+Breiman, L., Friedman, J. H., Olshen, R. A., & Stone, C. J. (1984). *Classification and Regression Trees*. Wadsworth.
+
+**Contribution:**  
+A landmark work that systematically introduced the theoretical framework of decision trees. It proposed the use of a **binary tree structure**, **recursive binary splitting**, and specific split criteria: **Gini impurity** for classification and **mean squared error (MSE)** for regression. It also formalized **cost-complexity pruning**, laying the foundation for modern decision tree methods.
+
+**Key Contributions:**
+
+- Gini impurity (for classification)
+
+- Regression trees (based on MSE)
+
+- Systematic cost-complexity pruning theory
+
+```{r}
+library(rpart)
+library(rpart.plot)
+library(MASS)
+
+# Tree building
+cart_model <- rpart(Species ~ ., data = iris, method = "class")
+rpart.plot(cart_model, main = "CART Decision Tree for Iris Data", extra = 104)
+```
+
+Gini impurity and MSE are the criteria used to determine splitting “at tree building”, while CP is the criterion used to evaluate whether a subtree is worth keeping “at pruning”.
+
+| Item              | Gini Impurity / Entropy / MSE                                     | CP (Complexity Parameter)                                                      |
+|-------------------|-------------------------------------------------------------------|----------------------------------------------------------------------------------|
+| Purpose        | Decides **whether and where to split** a node                     | Decides **whether to keep a subtree** (pruning)                                 |
+| Application    | **Tree growth phase** (building from an empty tree)               | **Pruning phase** (cutting back from a large tree)                              |
+| In classification trees | Gini impurity or entropy                                 | Misclassification rate, Gini, or `xerror` (cross-validation error)              |
+| In regression trees    | MSE (Mean Squared Error)                                 | RSS (Residual Sum of Squares) or cross-validation error                         |
+
+```{R}
+printcp(cart_model)
+plotcp(cart_model)
+```
+
+```{r}
+# Select the optimal cp (with the minimum cross-validation error)
+opt_cp <- cart_model$cptable[which.min(cart_model$cptable[,"xerror"]), "CP"]
+# Prune the tree using the optimal cp
+pruned_model <- prune(cart_model, cp = opt_cp)
+# Visualize the pruned decision tree
+rpart.plot(pruned_model, main = "Pruned CART Tree", extra = 104)
+```
+### Feature Importance
+
+In CART (Classification and Regression Trees), **variable importance** is computed by analyzing how much each variable contributes to the reduction of node impurity across the entire tree.
+
+General Definition
+
+For a given variable $X_j$, its importance is computed as:
+
+$$
+\text{Importance}(X_j) = \sum_{t \in \text{splits using } X_j} \Delta \text{Impurity}_t
+$$
+
+That is, we sum the impurity reduction $\Delta \text{Impurity}$ achieved by all splits that use $X_j$.
+
+Finally, importance scores are **normalized** so that the total across all variables equals 1:
+
+$$
+\sum_j \text{Importance}(X_j) = 1
+$$
+
+
+
+```{r}
+pruned_model$variable.importance
+```
+
+
+
+
+
+
+
+
+
+
+---
+
+## ID3 (Iterative Dichotomiser 3)
+
+**Work:**  
+Quinlan, J. R. (1986). *Induction of Decision Trees*. *Machine Learning*, *1*(1), 81–106.
+
+**Contribution:**  
+An algorithm designed specifically for classification tasks. Its key innovation was the use of **information gain** (based on entropy from information theory) as the splitting criterion. Unlike CART, ID3 constructs **multiway splits** instead of binary trees.
+
+**Key Contribution:**
+- Information gain as a splitting criterion
+
+---
+
+## C4.5 (An Evolution of ID3)
+
+**Work:**  
+Quinlan, J. R. (1993). *C4.5: Programs for Machine Learning*. Morgan Kaufmann.
+
+**Contribution:**  
+A major enhancement of ID3. Key innovations include:
+
+- **Gain Ratio:** A normalized version of information gain that reduces bias toward attributes with many values
+- **Handling of Continuous Attributes:** Automatically discretizes continuous features
+- **Missing Value Handling:** Introduces strategies for dealing with missing data
+- **Pruning Techniques:** Includes methods such as pessimistic error pruning and statistical tests (e.g., chi-squared pruning)
+
+
+**Impact:**  
+C4.5 became one of the most widely used and influential single-tree decision tree algorithms for many years.
+
+```{R}
+library(ISLR2)
+library(tidyverse)
+library(MASS)
+data(kyphosis)
+```
+
+
+
+```{R}
+kmod <- rpart(Kyphosis ~ Age + Number + Start, method="class", data=kyphosis, control = rpart.control(cp = 0, minbucket = 1))
+prp(kmod, type = 2, extra = 101, nn = TRUE, fallen.leaves = TRUE, cex = 0.6)
+```
+
+```{r}
+# kmod$frame
+```
+
+```{r}
+kmod$cptable
+```
+```{r}
+frame <- kmod$frame
+node_ids <- as.numeric(rownames(frame))
+
+split_nodes <- node_ids[frame$var != "<leaf>"]
+split_labels <- paste0("Split ", seq_along(split_nodes))
+label_df <- data.frame(node_id = split_nodes, label = split_labels)
+
+custom_node_fun <- function(x, labs, digits, varlen) {
+  nid <- as.numeric(rownames(x$frame))
+  label <- label_df$label[match(nid, label_df$node_id)]
+  paste(labs, ifelse(!is.na(label), paste0("\n", label), ""))
+}
+
+prp(kmod,
+    type = 2, extra = 101, nn = TRUE,
+    fallen.leaves = TRUE,
+    box.col = ifelse(frame$var == "<leaf>", "gray90", "skyblue"),
+    node.fun = custom_node_fun,
+    main = "Labeled Split number", cex = 0.6)
+```
+
+| Column     | Meaning                                                                                   |
+|------------|--------------------------------------------------------------------------------------------|
+| `CP`       | **Complexity Parameter**: The minimum relative error reduction obtained by pruning the current split node and its entire subtree. |
+| `nsplit`   | **Number of Splits**: The number of splits retained in the current subtree (i.e., number of internal decision nodes).             |
+| `rel error`| **Relative Training Error**: The relative error of the current subtree on the training data, scaled so that the root node has error 1. |
+| `xerror`   | **Relative Cross-Validation Error**: The relative error of the current subtree evaluated via cross-validation; used to select the optimal subtree. |
+| `xstd`     | **Standard Deviation of Cross-Validation Error**: The standard error of `xerror`, used to construct error bars when identifying the minimum cost-complexity subtree. |
+
+What is the Default Error Measure $R(t)$ in `rpart`?
+
+The default error measure depends on the `method` specified in the `rpart()` function:
+
+| `method` Argument | Default Error Measure $R(t)$            | Description                                |
+|------------------|--------------------------------------------|--------------------------------------------|
+| `"class"`        | **Misclassification error**                 | $R(t) = 1 - \max(p_i)$, where $p_i$ is the proportion of the majority class at node $t$ |
+| `"anova"`        | **Residual Sum of Squares (RSS)**           | $R(t) = \sum (y_i - \bar{y}_t)^2$       |
+| `"poisson"`      | **Deviance (Likelihood-based)**             | Used for count data                        |
+| `"exp"`          | **Exponential Deviance (Survival)**         | Used for censored data models              |
+
+
+Example code for Pruning Results with Split Numbering
+```{r}
+# cp_opt <- 0.05882353
+# pruned_model <- prune(kmod, cp = cp_opt)
+# frame <- pruned_model$frame
+# node_ids <- as.numeric(rownames(frame))
+# 
+# split_nodes <- node_ids[frame$var != "<leaf>"]
+# split_labels <- paste0("Split ", seq_along(split_nodes))
+# label_df <- data.frame(node_id = split_nodes, label = split_labels)
+# 
+# prp(pruned_model,
+#     type = 2, extra = 101, nn = TRUE,
+#     fallen.leaves = TRUE,
+#     box.col = ifelse(frame$var == "<leaf>", "gray90", "skyblue"),
+#     node.fun = custom_node_fun,
+#     main = "Labeled Split number (Pruned Tree)", cex = 0.6)
+```
+
+
+## In the frame, we observe that splits 3, 4, and 5 share the same complexity parameter (CP), for example, 0.0196. Yet, in the cptable, only the last one (corresponding to split 5) is retained. Why isn’t the earlier, simpler tree structure (e.g., after split 3, with fewer splits) preserved?
+
+```{r}
+# Extract model structure
+frame <- kmod$frame
+node_ids <- as.numeric(rownames(frame))
+
+# Extract non-leaf nodes (i.e., split points)
+split_nodes <- node_ids[frame$var != "<leaf>"]
+split_cp <- frame$complexity[frame$var != "<leaf>"]
+
+# Create data frame
+cp_df <- data.frame(
+  Node = split_nodes,
+  SplitVariable = frame$var[frame$var != "<leaf>"],
+  CP = split_cp
+)
+
+# Sort by CP
+cp_df <- cp_df %>% arrange(desc(CP)) %>%
+  mutate(SplitIndex = row_number())
+
+# Plot
+library(ggplot2)
+ggplot(cp_df, aes(x = SplitIndex, y = CP, label = SplitVariable)) +
+  geom_point(size = 3, color = "steelblue") +
+  geom_text(vjust = -0.5, size = 4) +
+  scale_y_log10() +  # log scale for clarity
+  labs(title = "Complexity Parameter (CP) per Split Node",
+       x = "Split Index (ordered by decreasing CP)", y = "CP (log10)") +
+  theme_minimal()
+```
+
+Each point represents a non-terminal node (i.e., a split point) in the decision tree. The label indicates the variable used for that particular split (e.g., "Start", "Age", "Number"). This plot visualizes the most influential splits (those with the greatest reduction in error), the most frequently used variables, and the diminishing marginal effectiveness of splits, as reflected by the exponentially decreasing complexity parameter (CP) on a log scale.
+
+Regarding the question, this is because each row in cptable corresponds to a subtree characterized by its minimal CP, not every possible intermediate configuration (Breiman et al., 1984, CART). When multiple internal nodes have the same minimal CP value, they are pruned simultaneously. As a result, cptable only records the tree structure after all such nodes have been removed—it does not log each intermediate pruning step.
+
+Therefore, although the tree after split 3 may be simpler, it is not favored under the cost-complexity pruning criterion if pruning additional splits (e.g., 4 and 5) yields the same CP but a larger reduction in overall error. In such cases, the intermediate state is omitted from the table because it does not improve the cost-complexity trade-off.
+
+## Interpretation: Variable Importance
+
+There are two ways to report variable importance:
+
+`kmod$variable.importance`: unscaled raw scores—the total reduction in impurity (e.g., Gini index, information gain, or RSS) contributed by each variable across all splits in the tree.
+
+`summary(kmod)` → “Variable importance”: the same raw scores rescaled to integer percentages that sum to 100.
+
+```{r}
+kmod$variable.importance
+```
+
+```{r}
+# summary(kmod)
+```
+
+I have attempted several methods described in the literature and online resources, but have not yet been able to fully replicate the rpart package's calculation of variable importance. The method that produces results closest to rpart is Method 1 — Deviance Drop per Node. However, this issue remains unresolved. Although I have examined the source code of the rpart package, I have not yet been able to determine the exact computational mechanism it employs.
+
+Best Method 1 — Deviance Drop per Node
+For a variable *var*:
+
+$$
+\text{Importance}_{\text{var}}
+=\sum_{\text{splits on var}}
+\bigl(
+  D_{\text{parent}}
+  -D_{\text{left}}
+  -D_{\text{right}}
+\bigr)
+$$
+
+where $D$ is the node deviance (Gini, entropy, RSS, …).
+
+```{r}
+library(rpart)
+library(ISLR2)
+library(tidyverse)
+
+# ===============================================
+# How variable.importance is computed
+# ===============================================
+# 1. For each split node, compute the impurity improvement
+# 2. Accumulate the improvement for every variable that is used in a split
+# 3. Surrogate splits also contribute, weighted by their agreement
+# 4. Finally, normalise the totals (rpart leaves them un-scaled; summary() rescales)
+
+# ---------- Method 1: simple deviance-drop loop ----------------
+calculate_variable_importance <- function(tree_model) {
+  frame <- tree_model$frame
+  var_importance <- numeric()
+
+  # Loop over all rows in frame; keep only internal nodes
+  for (i in seq_len(nrow(frame))) {
+    if (frame$var[i] != "<leaf>") {
+      var_name <- as.character(frame$var[i])
+
+      # Improvement = parent deviance – deviance(left) – deviance(right)
+      node_improve <- frame$dev[i] - frame$dev[2 * i] - frame$dev[2 * i + 1]
+
+      var_importance[var_name] <- var_importance[var_name] + node_improve
+    }
+  }
+  sort(var_importance, decreasing = TRUE)
+}
+
+# ---------- Method 2: accumulate the 'improve' column in splits ------------
+calculate_variable_importance_accurate <- function(tree_model) {
+  splits <- tree_model$splits
+  if (is.null(splits) || nrow(splits) == 0) return(numeric())
+
+  var_importance <- tapply(
+    splits[, "improve"],
+    sub("\\..*", "", rownames(splits)),  # strip suffix from surrogate rows
+    sum, na.rm = TRUE
+  )
+  sort(var_importance, decreasing = TRUE)
+}
+
+# ---------- Method 3: deviance-drop but with bounds checks ------------------
+calculate_variable_importance_exact <- function(tree_model) {
+  frame <- tree_model$frame
+  var_importance <- numeric()
+
+  for (i in seq_len(nrow(frame))) {
+    if (frame$var[i] != "<leaf>") {
+      var_name <- as.character(frame$var[i])
+
+      parent_dev <- frame$dev[i]
+      left_dev   <- if (2 * i     <= nrow(frame)) frame$dev[2 * i]     else 0
+      right_dev  <- if (2 * i + 1 <= nrow(frame)) frame$dev[2 * i + 1] else 0
+
+      improve_val <- parent_dev - left_dev - right_dev
+      var_importance[var_name] <- var_importance[var_name] + improve_val
+    }
+  }
+  sort(var_importance, decreasing = TRUE)
+}
+
+# ---------- Run the three manual calculations ------------------------------
+cat("\nManual variable.importance (Method 1):\n")
+manual_importance_1 <- calculate_variable_importance(kmod)
+print(manual_importance_1)
+
+cat("\nManual variable.importance (Method 2 – based on splits):\n")
+manual_importance_2 <- calculate_variable_importance_accurate(kmod)
+print(manual_importance_2)
+
+cat("\nManual variable.importance (Method 3 – frame structure):\n")
+manual_importance_3 <- calculate_variable_importance_exact(kmod)
+print(manual_importance_3)
+
+# ---------- Inspect the splits matrix --------------------------------------
+cat("\n=== Detailed inspection of the splits matrix ===\n")
+if (!is.null(kmod$splits)) {
+  cat("Full splits matrix:\n"); print(kmod$splits)
+  cat("\nRow names of splits:\n"); print(rownames(kmod$splits))
+
+  cat("\nImprove value for each split:\n")
+  for (i in seq_len(nrow(kmod$splits))) {
+    cat(sprintf("Split %d: %s   improve = %.6f\n",
+        i, rownames(kmod$splits)[i], kmod$splits[i, "improve"]))
+  }
+}
+
+# ---------- Examine overall tree structure ---------------------------------
+cat("\n=== Tree structure analysis ===\n")
+cat("Frame summary:\n"); print(kmod$frame)
+
+cat("\nSplits summary:\n"); print(kmod$splits)
+
+plot(kmod, uniform = TRUE, main = "Kyphosis Decision Tree")
+text(kmod, use.n = TRUE, all = TRUE, cex = 0.8)
+
+# ---------- Compare manual vs rpart numbers --------------------------------
+cat("\n=== Comparison of results ===\n")
+rpart_importance <- kmod$variable.importance
+cat("Number of variables in rpart object:", length(rpart_importance), "\n")
+cat("Number of variables (method 2):",    length(manual_importance_2), "\n")
+
+if (length(rpart_importance) > 0 && length(manual_importance_2) > 0) {
+  comparison <- data.frame(
+    Variable       = names(rpart_importance),
+    rpart_value    = as.numeric(rpart_importance),
+    manual_method2 = as.numeric(manual_importance_2[names(rpart_importance)]),
+    manual_method3 = as.numeric(manual_importance_3[names(rpart_importance)])
+  )
+  comparison$diff_method2 <- abs(comparison$rpart_value - comparison$manual_method2)
+  comparison$diff_method3 <- abs(comparison$rpart_value - comparison$manual_method3)
+
+  cat("\nDetailed comparison:\n"); print(comparison)
+}
+
+# ---------- Possible sources of discrepancy --------------------------------
+cat("\n=== Possible reasons for discrepancies ===\n")
+cat("1. Surrogate-split contributions\n")
+cat("2. rpart's internal weighting of improve\n")
+cat("3. Cross-validation or pruning adjustments\n")
+cat("4. Numerical precision / rounding\n")
+
+# ---------- Extra details from rpart object --------------------------------
+cat("\n=== Extra diagnostics from rpart ===\n")
+cat("cptable:\n"); print(kmod$cptable)
+
+cat("\nwhere vector (first few rows):\n")
+if (!is.null(kmod$where)) print(head(kmod$where))
+
+# ---------- Exact replication via tapply -----------------------------------
+calculate_exact_importance <- function(rpart_obj) {
+  splits <- rpart_obj$splits
+  if (is.null(splits) || nrow(splits) == 0) return(numeric(0))
+
+  var_imp <- tapply(
+    splits[, "improve"],
+    sub("\\..*", "", rownames(splits)),
+    sum, na.rm = TRUE
+  )
+  sort(var_imp, decreasing = TRUE)
+}
+
+cat("\nExact replication (tapply):\n")
+exact_importance <- calculate_exact_importance(kmod)
+print(exact_importance)
+
+# ---------- Extra notes -----------------------------------------------------
+cat("\n=== Notes on variable.importance ===\n")
+cat("1. Larger values = greater influence on the tree\n")
+cat("2. Based on impurity drop at each split\n")
+cat("3. Includes both primary and surrogate splits\n")
+cat("4. For classification trees the impurity is usually Gini or entropy\n")
+cat("5. rpart stores raw totals; summary() rescales to sum-to-100 (>=4.1-19) or max-to-100 (older)\n")
+
+if (length(rpart_importance) > 0) {
+  rel_importance <- 100 * rpart_importance / sum(rpart_importance)
+  cat("\nRelative importance (% of total):\n")
+  for (i in seq_along(rel_importance)) {
+    cat(sprintf("%s: %.2f%%\n",
+        names(rel_importance)[i], rel_importance[i]))
+  }
+}
+
+```
+
+
+
+
+
+
+
+
+
+
+
