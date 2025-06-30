@@ -1,0 +1,439 @@
+---
+title: "Random Forest"
+author: "Luying Shu"
+execute:
+  echo: true
+format:
+  html:
+    fig-width: 6
+    fig-height: 4
+    out-width: 60%
+    embed-resources: true
+---
+
+
+# The Revolution of Ensemble Methods (1990s–2000s): Decision Trees as the Foundation
+
+## Bagging (Bootstrap Aggregating)
+
+**Work:**  
+Breiman, L. (1996). *Bagging Predictors*. *Machine Learning*, *24*(2), 123–140.
+
+**Contribution:**  
+Bagging builds multiple models (typically decision trees) by training each on a different bootstrapped sample of the training data. The final prediction is made via **majority voting** (for classification) or **averaging** (for regression). This method **significantly reduces variance**, increasing the **stability** and **generalization** of the model. Bagging laid the groundwork for Random Forests.
+
+**Key Concepts:**
+- Bootstrap sampling  
+- Independent model training  
+- Voting/Averaging for final prediction  
+- Variance reduction and improved robustness
+
+---
+
+## Random Forest
+
+**Work:**  
+Breiman, L. (2001). *Random Forests*. *Machine Learning*, *45*(1), 5–32.
+
+**Contribution:**  
+An extension of Bagging that introduces **feature randomness**. During tree construction, not only are the training samples bootstrapped, but at each node, a **random subset of features** is selected to determine the best split. This further **reduces correlation** between trees and enhances the model’s **accuracy**, **robustness**, and **resistance to overfitting**. It has become one of the most powerful and widely used machine learning algorithms.
+
+**Key Innovations:**
+- Sample bootstrapping (as in Bagging)  
+- Random feature selection at each split  
+- De-correlation of trees  
+- High predictive performance and generalization
+
+
+```{r}
+#install.packages("randomForest")
+library(randomForest)
+library(ISLR2) # for Boston dataset
+library(ggplot2)
+library(vip)
+set.seed(150)
+train <- sample(nrow(Boston), .98*nrow(Boston))
+train_dat <- Boston[train,]
+test_dat <- Boston[-train,]
+bag.boston <- randomForest(medv ~ ., data = train_dat, mtry = 12)
+bag.boston
+head(Boston)
+```
+
+```{r}
+## Bagging ≈ RF with mtry = p
+bag.fit <- randomForest(
+  medv ~ ., data = train_dat,
+  mtry  = ncol(Boston) - 1,    # p = 12 predictors
+  ntree = 500,
+  importance = TRUE,           # store VI
+  keep.inbag = TRUE
+)
+
+bag.fit                            # OOB error & VI printed
+
+```
+
+
+
+
+```{r}
+# 2.  OUT-OF-SAMPLE PERFORMANCE
+pred_test <- predict(bag.fit, newdata = test_dat)
+rmse_test <- sqrt(mean((pred_test - test_dat$medv) ^ 2))
+rmse_test
+# A baseline lm for reference
+rmse_lm <- sqrt(mean((predict(lm(medv ~ ., train_dat), test_dat) - test_dat$medv)^2))
+
+sprintf("Test-set RMSE: Bagging = %.2f ;  OLS = %.2f", rmse_test, rmse_lm)
+
+```
+
+
+$$
+\text{RMSE} = \sqrt{ \frac{1}{n} \sum_{i=1}^{n} \left( \hat{y}_i - y_i \right)^2 }
+$$
+rmse_test ≈ 4.18. This indicates that the Bagging model achieves an RMSE of approximately 4.18 on the test set. rmse_lm ≈ 5.73. The linear model produces a higher RMSE of 5.73, indicating lower predictive accuracy.
+
+Bagging outperforms OLS, achieving lower prediction error on unseen data. This demonstrates Bagging’s ability to reduce variance and model complex relationships that a linear model may fail to capture. Since RMSE penalizes large errors, a lower RMSE indicates better generalization.
+
+### Variable Importacne(Regression)
+
+Permutation Importance based on MSE Increase:
+Randomly shuffle the values of a specific variable (on the out-of-bag data) and compare the increase in model prediction error (MSE) to assess the importance of the variable.
+
+In Breiman's book, the importance of the variable is measured by the v alue of “percentage of increase of mean square error” (Increase in MSE(%)) in Random Forest, where a higher MSE% value means a more important variable. 
+
+The formula is as follows:
+
+$$
+\%\text{IncMSE}_j = \frac{ \text{MSE}_{\text{perm}(j)} - \text{MSE}_{\text{orig}} }{ \text{MSE}_{\text{orig}} } \times 100
+$$
+
+Where:
+
+- $\text{MSE}_{\text{orig}}$: Original OOB MSE without permutation  
+- $\text{MSE}_{\text{perm}(j)}$: OOB MSE after permuting variable $ j$
+
+A higher %IncMSE means that permuting the variable causes a larger increase in error, indicating higher importance.
+
+
+```{r}
+# Load required libraries
+library(randomForest)
+library(ISLR2)  # for Boston dataset
+library(vip)    # for variable importance plots
+library(dplyr)
+library(ggplot2)
+
+# Set seed for reproducibility
+set.seed(150)
+
+# Prepare data
+train <- sample(nrow(Boston), .98*nrow(Boston))
+train_dat <- Boston[train,]
+test_dat <- Boston[-train,]
+
+# Fit the bagging model (Random Forest with mtry = p)
+bag.fit <- randomForest(
+  medv ~ ., data = train_dat,
+  mtry = ncol(Boston) - 1,    # p = 12 predictors (bagging)
+  ntree = 500,
+  importance = TRUE,          # store variable importance
+  keep.inbag = TRUE
+)
+
+print("Original Random Forest Model:")
+print(bag.fit)
+
+
+# MANUAL CALCULATION OF VARIABLE IMPORTANCE (%IncMSE)
+# Function to manually calculate %IncMSE for a given variable
+calculate_manual_vi <- function(rf_model, train_data, variable_name) {
+  
+  # Step 1: Get original OOB predictions and calculate original MSE
+  oob_pred_orig <- rf_model$predicted  # OOB predictions from original model
+  y_true <- train_data$medv
+  mse_orig <- mean((oob_pred_orig - y_true)^2)
+  
+  cat(sprintf("Original OOB MSE: %.4f\n", mse_orig))
+  
+  # Step 2: Create permuted dataset
+  train_permuted <- train_data
+  set.seed(123)  # for reproducibility of permutation
+  train_permuted[[variable_name]] <- sample(train_permuted[[variable_name]])
+  
+  cat(sprintf("Permuting variable: %s\n", variable_name))
+  
+  # Step 3: Refit the model with permuted data
+  rf_permuted <- randomForest(
+    medv ~ ., data = train_permuted,
+    mtry = ncol(Boston) - 1,
+    ntree = 500,
+    keep.inbag = TRUE
+  )
+  
+  # Step 4: Get OOB predictions from permuted model and calculate new MSE
+  oob_pred_perm <- rf_permuted$predicted
+  mse_perm <- mean((oob_pred_perm - y_true)^2)
+  
+  cat(sprintf("Permuted OOB MSE: %.4f\n", mse_perm))
+  
+  # Step 5: Calculate %IncMSE
+  percent_inc_mse <- (mse_perm - mse_orig) / mse_orig * 100
+  
+  cat(sprintf("Manual %%IncMSE for %s: %.4f\n", variable_name, percent_inc_mse))
+  
+  return(list(
+    variable = variable_name,
+    mse_orig = mse_orig,
+    mse_perm = mse_perm,
+    percent_inc_mse = percent_inc_mse
+  ))
+}
+
+# CALCULATE FOR SPECIFIC VARIABLE (e.g., 'lstat')
+
+cat("\n=== MANUAL CALCULATION FOR 'lstat' ===\n")
+manual_vi_lstat <- calculate_manual_vi(bag.fit, train_dat, "lstat")
+
+
+# COMPARE WITH BUILT-IN IMPORTANCE FUNCTION
+
+cat("\n=== COMPARISON WITH BUILT-IN FUNCTIONS ===\n")
+
+# Get built-in variable importance
+vi_builtin <- importance(bag.fit, type = 1)  # type = 1 for %IncMSE
+vi_lstat_builtin <- vi_builtin["lstat", "%IncMSE"]
+
+cat(sprintf("Built-in %%IncMSE for lstat: %.4f\n", vi_lstat_builtin))
+cat(sprintf("Manual %%IncMSE for lstat: %.4f\n", manual_vi_lstat$percent_inc_mse))
+cat(sprintf("Difference: %.4f\n", abs(vi_lstat_builtin - manual_vi_lstat$percent_inc_mse)))
+
+
+# CALCULATE FOR ALL VARIABLES (MANUAL vs BUILT-IN)
+
+cat("\n=== CALCULATING FOR ALL VARIABLES ===\n")
+
+# Get all variable names
+all_vars <- names(train_dat)[names(train_dat) != "medv"]
+
+# Manual calculation for all variables (this might take some time)
+manual_vi_all <- data.frame(
+  Variable = character(),
+  Manual_IncMSE = numeric(),
+  stringsAsFactors = FALSE
+)
+
+for (var in all_vars) {
+  cat(sprintf("\nCalculating for %s...\n", var))
+  manual_result <- calculate_manual_vi(bag.fit, train_dat, var)
+  manual_vi_all <- rbind(manual_vi_all, 
+                        data.frame(Variable = var, 
+                                  Manual_IncMSE = manual_result$percent_inc_mse))
+}
+
+# Built-in importance for all variables
+builtin_vi <- data.frame(
+  Variable = rownames(vi_builtin),
+  Builtin_IncMSE = vi_builtin[, "%IncMSE"]
+)
+
+# Combine results
+comparison_df <- merge(manual_vi_all, builtin_vi, by = "Variable")
+comparison_df$Difference <- abs(comparison_df$Manual_IncMSE - comparison_df$Builtin_IncMSE)
+comparison_df <- comparison_df[order(-comparison_df$Builtin_IncMSE), ]
+
+cat("\n=== COMPARISON TABLE ===\n")
+print(comparison_df)
+
+
+# VISUALIZATION
+
+# Create comparison plot
+comparison_long <- reshape2::melt(comparison_df[, c("Variable", "Manual_IncMSE", "Builtin_IncMSE")], 
+                                 id.vars = "Variable")
+
+p1 <- ggplot(comparison_long, aes(x = reorder(Variable, value), y = value, fill = variable)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  coord_flip() +
+  labs(title = "Manual vs Built-in Variable Importance (%IncMSE)",
+       x = "Variables", y = "%IncMSE",
+       fill = "Method") +
+  scale_fill_manual(values = c("Manual_IncMSE" = "lightblue", "Builtin_IncMSE" = "coral"),
+                    labels = c("Manual Calculation", "Built-in Function")) +
+  theme_minimal()
+
+print(p1)
+
+# Plot using vip function for comparison
+p2 <- vip(bag.fit, bar = TRUE) +
+  ggtitle("Built-in Variable Importance (vip function)")
+
+print(p2)
+
+
+# SUMMARY STATISTICS
+
+cat("\n=== SUMMARY STATISTICS ===\n")
+cat(sprintf("Mean absolute difference: %.6f\n", mean(comparison_df$Difference)))
+cat(sprintf("Max absolute difference: %.6f\n", max(comparison_df$Difference)))
+cat(sprintf("Correlation between methods: %.6f\n", 
+            cor(comparison_df$Manual_IncMSE, comparison_df$Builtin_IncMSE)))
+
+# Show the most important variables from both methods
+cat("\nTop 5 variables by built-in method:\n")
+print(head(comparison_df[, c("Variable", "Builtin_IncMSE")], 5))
+
+cat("\nTop 5 variables by manual method:\n")
+print(head(comparison_df[order(-comparison_df$Manual_IncMSE), c("Variable", "Manual_IncMSE")], 5))
+```
+
+```{r}
+vi(bag.fit, bar = TRUE)
+```
+
+Not the same, but the two results are similar.
+
+
+```{r}
+# 4.  GLOBAL EFFECTS – PARTIAL DEPENDENCE
+library(pdp)
+## single feature
+pdp.rm <- pdp::partial(bag.fit, pred.var = "rm", train = train_dat)
+ggplot()+
+  geom_line(data = pdp.rm, aes(x=rm,y=yhat))+
+  geom_point(data = pdp.rm, aes(x=rm,y=yhat), size = .5)+
+  geom_rug(data = train_dat,aes(rm),color = "red", alpha = .3)
+```
+This code creates a Partial Dependence Plot that shows how the predicted response (medv, median home value) changes as the value of rm changes, while holding all other variables constant (marginalizing them out).
+
+`rm` is clearly positively associated with house value.The relationship is nonlinear and saturates beyond a point (around 7.5–8 rooms).
+
+If the PDP varies a lot in a certain interval but the rug is very small, it means that the data in that interval is sparse and the PDP results may be unstable or unreliable.
+
+ The phenomenon observed in the figure: rm between 5 and 7 has the most data (rug density), and there are very few samples smaller than 4 or larger than 8.
+
+Thus, the steep rise in PDP between 6.5 and 8 is plausible, while at the extremes (e.g., >8.5), PDP may be strongly influenced by small sample sizes.
+
+
+
+```{r}
+# ------------------------------------------------------------
+# 1.  Build a PDP for every predictor in train_dat ------------
+# ------------------------------------------------------------
+vars <- setdiff(names(train_dat), "medv")     # all 12 predictors
+
+pdp_list <- lapply(vars, function(v) {
+  cat("→ computing PDP for", v, "\n")         # progress message
+  pd <- pdp::partial(
+    object            = bag.fit,
+    pred.var          = v,
+    train             = train_dat,
+    grid.resolution   = 20,        # 20 grid points per variable
+    progress          = "none"     # set to "text" if you like a progress bar
+  )
+
+  colnames(pd) <- c("value", "yhat")
+  pd$Variable  <- v
+  pd
+})
+
+plot_data <- bind_rows(pdp_list)
+
+# ------------------------------------------------------------
+# 2.  Faceted PDP plot ---------------------------------------
+# ------------------------------------------------------------
+ggplot(plot_data, aes(x = value, y = yhat)) +
+  geom_line() +
+  facet_wrap(~ Variable, scales = "free_x", ncol = 4) +
+  labs(
+    x     = "Predictor value",
+    y     = "Predicted medv (PDP)",
+    title = "Partial-dependence plots for bagged random-forest model"
+  ) +
+  theme_minimal()
+
+
+```
+
+```{r local-effects, message=FALSE, warning=FALSE}
+
+library(pdp)       # partial(), ICE, PDP
+library(dplyr)     # select, pipes
+library(ggplot2)
+
+# 1.  ICE curves for 'rm' 
+ice_rm <- partial(
+  bag.fit,
+  pred.var        = "rm",
+  train           = train_dat,
+  ice             = TRUE,
+  progress        = "none"
+)
+
+autoplot(ice_rm, alpha = 0.2) +
+  ggtitle("ICE curves for rm (grey) + PDP (red)")
+
+```
+
+Gray Curve ICE Curve (Individual Conditional Expectation):
+
+- For each observation in the training set, fix the remaining 11 features and just let the rm slide over a series of grid points and record the predictions, and then connect those points to a line. Each gray line = a “local response curve” for a house.
+
+Red Curve PDP (Partial Dependence):
+
+- The predicted values of all ICE curves averaged over the same rm points are connected to a line, indicating the marginal effect of the overall average.
+
+
+### Variable Importacne(Classification)
+
+Gini Importance based on Node Impurity Reduction (applicable only to classification trees):
+Measures the total decrease in Gini impurity brought by a variable across all splits where it is used. The more a variable decreases impurity, the more important it is considered.
+
+Let $p_{k}$ be the proportion of class $k$ observations in a node.  
+The **Gini impurity** of a node is defined as:
+
+$$G = 1 - \sum_{k=1}^{K} p_k^2$$
+
+When a node is split on a variable, the decrease in impurity is calculated as:
+
+$$\Delta G = G_{\text{parent}} - \left( \frac{n_{\text{left}}}{n_{\text{parent}}} G_{\text{left}} + \frac{n_{\text{right}}}{n_{\text{parent}}} G_{\text{right}} \right)$$
+
+The total **Gini importance** for a variable is the sum of $\Delta G$ over all splits where this variable is used.
+
+
+```{r}
+library(ISLR2)
+library(tidyverse)
+library(MASS)
+data(kyphosis)
+
+
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
