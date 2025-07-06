@@ -3903,7 +3903,8 @@ The <strong>Gini impurity</strong> of a node is defined as:</p>
 <p>The total <strong>Gini importance</strong> for a variable is the sum of <span class="math inline">\(\Delta G\)</span> over all splits where this variable is used.</p>
 <div class="cell">
 <div class="sourceCode cell-code" id="cb80"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb80-1"><a href="#cb80-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(ISLR2)</span>
-<span id="cb80-2"><a href="#cb80-2" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(tidyverse)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<span id="cb80-2"><a href="#cb80-2" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(rpart)</span>
+<span id="cb80-3"><a href="#cb80-3" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(tidyverse)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="cell-output cell-output-stderr">
 <pre><code>── Attaching core tidyverse packages ──────────────────────── tidyverse 2.0.0 ──
 ✔ forcats   1.0.0     ✔ stringr   1.5.1
@@ -3931,9 +3932,160 @@ The following object is masked from &#39;package:ISLR2&#39;:
 
     Boston</code></pre>
 </div>
-<div class="sourceCode cell-code" id="cb84"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb84-1"><a href="#cb84-1" aria-hidden="true" tabindex="-1"></a><span class="fu">data</span>(kyphosis)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
-<div class="cell-output cell-output-stderr">
-<pre><code>Warning in data(kyphosis): data set &#39;kyphosis&#39; not found</code></pre>
+<div class="sourceCode cell-code" id="cb84"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb84-1"><a href="#cb84-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Fit a classification tree</span></span>
+<span id="cb84-2"><a href="#cb84-2" aria-hidden="true" tabindex="-1"></a>kmod <span class="ot">&lt;-</span> <span class="fu">rpart</span>(Kyphosis <span class="sc">~</span> Age <span class="sc">+</span> Number <span class="sc">+</span> Start,</span>
+<span id="cb84-3"><a href="#cb84-3" aria-hidden="true" tabindex="-1"></a>              <span class="at">data =</span> kyphosis,</span>
+<span id="cb84-4"><a href="#cb84-4" aria-hidden="true" tabindex="-1"></a>              <span class="at">method =</span> <span class="st">&quot;class&quot;</span>,</span>
+<span id="cb84-5"><a href="#cb84-5" aria-hidden="true" tabindex="-1"></a>              <span class="at">control =</span> <span class="fu">rpart.control</span>(<span class="at">cp =</span> <span class="dv">0</span>, <span class="at">minsplit =</span> <span class="dv">2</span>))</span>
+<span id="cb84-6"><a href="#cb84-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb84-7"><a href="#cb84-7" aria-hidden="true" tabindex="-1"></a><span class="co"># View raw Gini importance from rpart</span></span>
+<span id="cb84-8"><a href="#cb84-8" aria-hidden="true" tabindex="-1"></a><span class="fu">print</span>(kmod<span class="sc">$</span>variable.importance)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>      Age     Start    Number 
+14.770095 13.780608  3.208137 </code></pre>
+</div>
+</div>
+<p>Manual Calculation of Gini Importance</p>
+<div class="cell">
+<div class="sourceCode cell-code" id="cb86"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb86-1"><a href="#cb86-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Access the frame of the tree</span></span>
+<span id="cb86-2"><a href="#cb86-2" aria-hidden="true" tabindex="-1"></a>frame <span class="ot">&lt;-</span> kmod<span class="sc">$</span>frame</span>
+<span id="cb86-3"><a href="#cb86-3" aria-hidden="true" tabindex="-1"></a>node_ids <span class="ot">&lt;-</span> <span class="fu">as.numeric</span>(<span class="fu">rownames</span>(frame))</span>
+<span id="cb86-4"><a href="#cb86-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb86-5"><a href="#cb86-5" aria-hidden="true" tabindex="-1"></a><span class="co"># Identify internal (split) nodes</span></span>
+<span id="cb86-6"><a href="#cb86-6" aria-hidden="true" tabindex="-1"></a>split_nodes <span class="ot">&lt;-</span> node_ids[frame<span class="sc">$</span>var <span class="sc">!=</span> <span class="st">&quot;&lt;leaf&gt;&quot;</span>]</span>
+<span id="cb86-7"><a href="#cb86-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb86-8"><a href="#cb86-8" aria-hidden="true" tabindex="-1"></a><span class="co"># Initialize importance list</span></span>
+<span id="cb86-9"><a href="#cb86-9" aria-hidden="true" tabindex="-1"></a>gini_importance <span class="ot">&lt;-</span> <span class="fu">list</span>()</span>
+<span id="cb86-10"><a href="#cb86-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb86-11"><a href="#cb86-11" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span>(<span class="fu">length</span>(split_nodes) <span class="sc">&gt;</span> <span class="dv">0</span>) {</span>
+<span id="cb86-12"><a href="#cb86-12" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> (node <span class="cf">in</span> split_nodes) {</span>
+<span id="cb86-13"><a href="#cb86-13" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Current node info</span></span>
+<span id="cb86-14"><a href="#cb86-14" aria-hidden="true" tabindex="-1"></a>    parent_row <span class="ot">&lt;-</span> <span class="fu">which</span>(<span class="fu">rownames</span>(frame) <span class="sc">==</span> <span class="fu">as.character</span>(node))</span>
+<span id="cb86-15"><a href="#cb86-15" aria-hidden="true" tabindex="-1"></a>    parent_n <span class="ot">&lt;-</span> frame<span class="sc">$</span>n[parent_row]</span>
+<span id="cb86-16"><a href="#cb86-16" aria-hidden="true" tabindex="-1"></a>    parent_dev <span class="ot">&lt;-</span> frame<span class="sc">$</span>dev[parent_row]</span>
+<span id="cb86-17"><a href="#cb86-17" aria-hidden="true" tabindex="-1"></a>    varname <span class="ot">&lt;-</span> frame<span class="sc">$</span>var[parent_row]</span>
+<span id="cb86-18"><a href="#cb86-18" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb86-19"><a href="#cb86-19" aria-hidden="true" tabindex="-1"></a>    <span class="fu">cat</span>(<span class="st">&quot;</span><span class="sc">\n</span><span class="st">Processing node&quot;</span>, node, <span class="st">&quot;- Variable:&quot;</span>, varname, <span class="st">&quot;</span><span class="sc">\n</span><span class="st">&quot;</span>)</span>
+<span id="cb86-20"><a href="#cb86-20" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb86-21"><a href="#cb86-21" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Left and right child node IDs</span></span>
+<span id="cb86-22"><a href="#cb86-22" aria-hidden="true" tabindex="-1"></a>    left_id <span class="ot">&lt;-</span> <span class="fu">as.character</span>(<span class="dv">2</span> <span class="sc">*</span> node)</span>
+<span id="cb86-23"><a href="#cb86-23" aria-hidden="true" tabindex="-1"></a>    right_id <span class="ot">&lt;-</span> <span class="fu">as.character</span>(<span class="dv">2</span> <span class="sc">*</span> node <span class="sc">+</span> <span class="dv">1</span>)</span>
+<span id="cb86-24"><a href="#cb86-24" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb86-25"><a href="#cb86-25" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Check if both children exist</span></span>
+<span id="cb86-26"><a href="#cb86-26" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (left_id <span class="sc">%in%</span> <span class="fu">rownames</span>(frame) <span class="sc">&amp;&amp;</span> right_id <span class="sc">%in%</span> <span class="fu">rownames</span>(frame)) {</span>
+<span id="cb86-27"><a href="#cb86-27" aria-hidden="true" tabindex="-1"></a>      left_row <span class="ot">&lt;-</span> <span class="fu">which</span>(<span class="fu">rownames</span>(frame) <span class="sc">==</span> left_id)</span>
+<span id="cb86-28"><a href="#cb86-28" aria-hidden="true" tabindex="-1"></a>      right_row <span class="ot">&lt;-</span> <span class="fu">which</span>(<span class="fu">rownames</span>(frame) <span class="sc">==</span> right_id)</span>
+<span id="cb86-29"><a href="#cb86-29" aria-hidden="true" tabindex="-1"></a>      </span>
+<span id="cb86-30"><a href="#cb86-30" aria-hidden="true" tabindex="-1"></a>      left_n <span class="ot">&lt;-</span> frame<span class="sc">$</span>n[left_row]</span>
+<span id="cb86-31"><a href="#cb86-31" aria-hidden="true" tabindex="-1"></a>      right_n <span class="ot">&lt;-</span> frame<span class="sc">$</span>n[right_row]</span>
+<span id="cb86-32"><a href="#cb86-32" aria-hidden="true" tabindex="-1"></a>      left_dev <span class="ot">&lt;-</span> frame<span class="sc">$</span>dev[left_row]</span>
+<span id="cb86-33"><a href="#cb86-33" aria-hidden="true" tabindex="-1"></a>      right_dev <span class="ot">&lt;-</span> frame<span class="sc">$</span>dev[right_row]</span>
+<span id="cb86-34"><a href="#cb86-34" aria-hidden="true" tabindex="-1"></a>      </span>
+<span id="cb86-35"><a href="#cb86-35" aria-hidden="true" tabindex="-1"></a>      <span class="co"># Calculate weighted impurity decrease</span></span>
+<span id="cb86-36"><a href="#cb86-36" aria-hidden="true" tabindex="-1"></a>      <span class="co"># Note: frame$dev in rpart contains deviance, not Gini impurity directly</span></span>
+<span id="cb86-37"><a href="#cb86-37" aria-hidden="true" tabindex="-1"></a>      <span class="co"># For classification trees, deviance = 2 * n * Gini_impurity</span></span>
+<span id="cb86-38"><a href="#cb86-38" aria-hidden="true" tabindex="-1"></a>      <span class="co"># So Gini_impurity = deviance / (2 * n)</span></span>
+<span id="cb86-39"><a href="#cb86-39" aria-hidden="true" tabindex="-1"></a>      </span>
+<span id="cb86-40"><a href="#cb86-40" aria-hidden="true" tabindex="-1"></a>      parent_gini <span class="ot">&lt;-</span> parent_dev <span class="sc">/</span> (<span class="dv">2</span> <span class="sc">*</span> parent_n)</span>
+<span id="cb86-41"><a href="#cb86-41" aria-hidden="true" tabindex="-1"></a>      left_gini <span class="ot">&lt;-</span> left_dev <span class="sc">/</span> (<span class="dv">2</span> <span class="sc">*</span> left_n)</span>
+<span id="cb86-42"><a href="#cb86-42" aria-hidden="true" tabindex="-1"></a>      right_gini <span class="ot">&lt;-</span> right_dev <span class="sc">/</span> (<span class="dv">2</span> <span class="sc">*</span> right_n)</span>
+<span id="cb86-43"><a href="#cb86-43" aria-hidden="true" tabindex="-1"></a>      </span>
+<span id="cb86-44"><a href="#cb86-44" aria-hidden="true" tabindex="-1"></a>      <span class="co"># Weighted average of child impurities</span></span>
+<span id="cb86-45"><a href="#cb86-45" aria-hidden="true" tabindex="-1"></a>      weighted_child_gini <span class="ot">&lt;-</span> (left_n <span class="sc">*</span> left_gini <span class="sc">+</span> right_n <span class="sc">*</span> right_gini) <span class="sc">/</span> parent_n</span>
+<span id="cb86-46"><a href="#cb86-46" aria-hidden="true" tabindex="-1"></a>      </span>
+<span id="cb86-47"><a href="#cb86-47" aria-hidden="true" tabindex="-1"></a>      <span class="co"># Decrease in Gini impurity</span></span>
+<span id="cb86-48"><a href="#cb86-48" aria-hidden="true" tabindex="-1"></a>      delta_gini <span class="ot">&lt;-</span> parent_gini <span class="sc">-</span> weighted_child_gini</span>
+<span id="cb86-49"><a href="#cb86-49" aria-hidden="true" tabindex="-1"></a>      </span>
+<span id="cb86-50"><a href="#cb86-50" aria-hidden="true" tabindex="-1"></a>      <span class="co"># For comparison with rpart&#39;s importance, we need to multiply by sample size</span></span>
+<span id="cb86-51"><a href="#cb86-51" aria-hidden="true" tabindex="-1"></a>      <span class="co"># This gives the total impurity decrease weighted by the number of samples</span></span>
+<span id="cb86-52"><a href="#cb86-52" aria-hidden="true" tabindex="-1"></a>      importance_contribution <span class="ot">&lt;-</span> delta_gini <span class="sc">*</span> parent_n</span>
+<span id="cb86-53"><a href="#cb86-53" aria-hidden="true" tabindex="-1"></a>      </span>
+<span id="cb86-54"><a href="#cb86-54" aria-hidden="true" tabindex="-1"></a>      <span class="fu">cat</span>(<span class="st">&quot;  Delta Gini:&quot;</span>, delta_gini, <span class="st">&quot;Contribution:&quot;</span>, importance_contribution, <span class="st">&quot;</span><span class="sc">\n</span><span class="st">&quot;</span>)</span>
+<span id="cb86-55"><a href="#cb86-55" aria-hidden="true" tabindex="-1"></a>      </span>
+<span id="cb86-56"><a href="#cb86-56" aria-hidden="true" tabindex="-1"></a>      <span class="co"># Accumulate importance</span></span>
+<span id="cb86-57"><a href="#cb86-57" aria-hidden="true" tabindex="-1"></a>      <span class="cf">if</span> (varname <span class="sc">%in%</span> <span class="fu">names</span>(gini_importance)) {</span>
+<span id="cb86-58"><a href="#cb86-58" aria-hidden="true" tabindex="-1"></a>        gini_importance[[varname]] <span class="ot">&lt;-</span> gini_importance[[varname]] <span class="sc">+</span> importance_contribution</span>
+<span id="cb86-59"><a href="#cb86-59" aria-hidden="true" tabindex="-1"></a>      } <span class="cf">else</span> {</span>
+<span id="cb86-60"><a href="#cb86-60" aria-hidden="true" tabindex="-1"></a>        gini_importance[[varname]] <span class="ot">&lt;-</span> importance_contribution</span>
+<span id="cb86-61"><a href="#cb86-61" aria-hidden="true" tabindex="-1"></a>      }</span>
+<span id="cb86-62"><a href="#cb86-62" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb86-63"><a href="#cb86-63" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb86-64"><a href="#cb86-64" aria-hidden="true" tabindex="-1"></a>} <span class="cf">else</span> {</span>
+<span id="cb86-65"><a href="#cb86-65" aria-hidden="true" tabindex="-1"></a>  <span class="fu">cat</span>(<span class="st">&quot;No internal nodes found - tree has no splits</span><span class="sc">\n</span><span class="st">&quot;</span>)</span>
+<span id="cb86-66"><a href="#cb86-66" aria-hidden="true" tabindex="-1"></a>}</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>
+Processing node 1 - Variable: Start 
+  Delta Gini: 0.01851852 Contribution: 1.5 
+
+Processing node 2 - Variable: Start 
+  Delta Gini: 0 Contribution: 0 
+
+Processing node 5 - Variable: Age 
+  Delta Gini: 0 Contribution: 0 
+
+Processing node 11 - Variable: Age 
+  Delta Gini: 0.07142857 Contribution: 1.5 
+
+Processing node 22 - Variable: Start 
+  Delta Gini: 0 Contribution: 0 
+
+Processing node 44 - Variable: Age 
+  Delta Gini: 0 Contribution: 0 
+
+Processing node 89 - Variable: Age 
+  Delta Gini: 0.08333333 Contribution: 0.5 
+
+Processing node 45 - Variable: Age 
+  Delta Gini: 0.25 Contribution: 0.5 
+
+Processing node 23 - Variable: Start 
+  Delta Gini: 0.1 Contribution: 0.5 
+
+Processing node 3 - Variable: Age 
+  Delta Gini: 0.05263158 Contribution: 1 
+
+Processing node 7 - Variable: Start 
+  Delta Gini: 0 Contribution: 0 
+
+Processing node 14 - Variable: Age 
+  Delta Gini: 0.08333333 Contribution: 1 
+
+Processing node 29 - Variable: Age 
+  Delta Gini: 0.1 Contribution: 1 
+
+Processing node 58 - Variable: Number 
+  Delta Gini: 0.08333333 Contribution: 0.5 
+
+Processing node 117 - Variable: Age 
+  Delta Gini: 0 Contribution: 0 
+
+Processing node 234 - Variable: Age 
+  Delta Gini: 0.25 Contribution: 0.5 </code></pre>
+</div>
+<div class="sourceCode cell-code" id="cb88"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb88-1"><a href="#cb88-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Convert to data frame and compare with rpart&#39;s output</span></span>
+<span id="cb88-2"><a href="#cb88-2" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span>(<span class="fu">length</span>(gini_importance) <span class="sc">&gt;</span> <span class="dv">0</span>) {</span>
+<span id="cb88-3"><a href="#cb88-3" aria-hidden="true" tabindex="-1"></a>  manual_importance <span class="ot">&lt;-</span> <span class="fu">unlist</span>(gini_importance)</span>
+<span id="cb88-4"><a href="#cb88-4" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb88-5"><a href="#cb88-5" aria-hidden="true" tabindex="-1"></a>  <span class="co"># Create comparison table</span></span>
+<span id="cb88-6"><a href="#cb88-6" aria-hidden="true" tabindex="-1"></a>  comparison_df <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(</span>
+<span id="cb88-7"><a href="#cb88-7" aria-hidden="true" tabindex="-1"></a>    <span class="at">Variable =</span> <span class="fu">names</span>(manual_importance),</span>
+<span id="cb88-8"><a href="#cb88-8" aria-hidden="true" tabindex="-1"></a>    <span class="at">Manual_Gini_Importance =</span> manual_importance,</span>
+<span id="cb88-9"><a href="#cb88-9" aria-hidden="true" tabindex="-1"></a>    <span class="at">rpart_Gini_Importance =</span> kmod<span class="sc">$</span>variable.importance[<span class="fu">names</span>(manual_importance)]</span>
+<span id="cb88-10"><a href="#cb88-10" aria-hidden="true" tabindex="-1"></a>  )</span>
+<span id="cb88-11"><a href="#cb88-11" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb88-12"><a href="#cb88-12" aria-hidden="true" tabindex="-1"></a>  <span class="fu">cat</span>(<span class="st">&quot;</span><span class="sc">\n</span><span class="st">Comparison of Manual vs rpart Gini Importance:</span><span class="sc">\n</span><span class="st">&quot;</span>)</span>
+<span id="cb88-13"><a href="#cb88-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">print</span>(comparison_df)</span>
+<span id="cb88-14"><a href="#cb88-14" aria-hidden="true" tabindex="-1"></a>} <span class="cf">else</span> {</span>
+<span id="cb88-15"><a href="#cb88-15" aria-hidden="true" tabindex="-1"></a>  <span class="fu">cat</span>(<span class="st">&quot;No importance calculated - no splits in tree</span><span class="sc">\n</span><span class="st">&quot;</span>)</span>
+<span id="cb88-16"><a href="#cb88-16" aria-hidden="true" tabindex="-1"></a>}</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>
+Comparison of Manual vs rpart Gini Importance:
+       Variable Manual_Gini_Importance rpart_Gini_Importance
+Start     Start                    2.0             13.780608
+Age         Age                    6.0             14.770095
+Number   Number                    0.5              3.208137</code></pre>
 </div>
 </div>
 </section>

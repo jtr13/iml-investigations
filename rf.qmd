@@ -405,35 +405,106 @@ The total **Gini importance** for a variable is the sum of $\Delta G$ over all s
 
 ```{r}
 library(ISLR2)
+library(rpart)
 library(tidyverse)
 library(MASS)
-data(kyphosis)
+# Fit a classification tree
+kmod <- rpart(Kyphosis ~ Age + Number + Start,
+              data = kyphosis,
+              method = "class",
+              control = rpart.control(cp = 0, minsplit = 2))
 
+# View raw Gini importance from rpart
+print(kmod$variable.importance)
+```
 
+Manual Calculation of Gini Importance
+
+```{r}
+
+# Access the frame of the tree
+frame <- kmod$frame
+node_ids <- as.numeric(rownames(frame))
+
+# Identify internal (split) nodes
+split_nodes <- node_ids[frame$var != "<leaf>"]
+
+# Initialize importance list
+gini_importance <- list()
+
+if(length(split_nodes) > 0) {
+  for (node in split_nodes) {
+    # Current node info
+    parent_row <- which(rownames(frame) == as.character(node))
+    parent_n <- frame$n[parent_row]
+    parent_dev <- frame$dev[parent_row]
+    varname <- frame$var[parent_row]
+    
+    cat("\nProcessing node", node, "- Variable:", varname, "\n")
+    
+    # Left and right child node IDs
+    left_id <- as.character(2 * node)
+    right_id <- as.character(2 * node + 1)
+    
+    # Check if both children exist
+    if (left_id %in% rownames(frame) && right_id %in% rownames(frame)) {
+      left_row <- which(rownames(frame) == left_id)
+      right_row <- which(rownames(frame) == right_id)
+      
+      left_n <- frame$n[left_row]
+      right_n <- frame$n[right_row]
+      left_dev <- frame$dev[left_row]
+      right_dev <- frame$dev[right_row]
+      
+      # Calculate weighted impurity decrease
+      # Note: frame$dev in rpart contains deviance, not Gini impurity directly
+      # For classification trees, deviance = 2 * n * Gini_impurity
+      # So Gini_impurity = deviance / (2 * n)
+      
+      parent_gini <- parent_dev / (2 * parent_n)
+      left_gini <- left_dev / (2 * left_n)
+      right_gini <- right_dev / (2 * right_n)
+      
+      # Weighted average of child impurities
+      weighted_child_gini <- (left_n * left_gini + right_n * right_gini) / parent_n
+      
+      # Decrease in Gini impurity
+      delta_gini <- parent_gini - weighted_child_gini
+      
+      # For comparison with rpart's importance, we need to multiply by sample size
+      # This gives the total impurity decrease weighted by the number of samples
+      importance_contribution <- delta_gini * parent_n
+      
+      cat("  Delta Gini:", delta_gini, "Contribution:", importance_contribution, "\n")
+      
+      # Accumulate importance
+      if (varname %in% names(gini_importance)) {
+        gini_importance[[varname]] <- gini_importance[[varname]] + importance_contribution
+      } else {
+        gini_importance[[varname]] <- importance_contribution
+      }
+    }
+  }
+} else {
+  cat("No internal nodes found - tree has no splits\n")
+}
+# Convert to data frame and compare with rpart's output
+if(length(gini_importance) > 0) {
+  manual_importance <- unlist(gini_importance)
+  
+  # Create comparison table
+  comparison_df <- data.frame(
+    Variable = names(manual_importance),
+    Manual_Gini_Importance = manual_importance,
+    rpart_Gini_Importance = kmod$variable.importance[names(manual_importance)]
+  )
+  
+  cat("\nComparison of Manual vs rpart Gini Importance:\n")
+  print(comparison_df)
+} else {
+  cat("No importance calculated - no splits in tree\n")
+}
 
 
 ```
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
