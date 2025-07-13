@@ -97,6 +97,107 @@ rmse_test ≈ 4.18. This indicates that the Bagging model achieves an RMSE of ap
 
 Bagging outperforms OLS, achieving lower prediction error on unseen data. This demonstrates Bagging’s ability to reduce variance and model complex relationships that a linear model may fail to capture. Since RMSE penalizes large errors, a lower RMSE indicates better generalization.
 
+### randomForest: importance, importanceSD, localImp(Regression)
+
+```{r}
+bag.fit <- randomForest(
+  medv ~ ., data = train_dat,
+  mtry  = ncol(Boston) - 1,    # p = 12 predictors
+  ntree = 500,
+  importance = TRUE,           # store VI
+  keep.inbag = TRUE,
+  localImp = TRUE
+)
+```
+
+```{r}
+bag.fit$importance
+
+```
+
+For Regression, the first column is the mean decrease in accuracy and the second the mean decrease in MSE. 
+
+%IncMSE — Percent Increase in Mean Squared Error
+
+This metric shows how much the model's prediction error (MSE) increases when a variable is randomly permuted, evaluated using the Out-of-Bag (OOB) samples. It reflects how important a variable is to the model’s predictive power.
+
+How it is calculated(explained in the following section Variable Importacne(Regression)).
+
+
+IncNodePurity — Increase in Node Purity
+
+This metric is based on the reduction in residual sum of squares (RSS) whenever a variable is used to split a node in the decision trees. It represents the total improvement in node purity across all splits using that variable.
+
+How it is calculated:
+1. Residual Sum of Squares (RSS) at a Node
+For any node $t$ in a regression tree, the **RSS** is defined as:
+
+$$
+RSS_t = \sum_{i \in t} (y_i - \bar{y}_t)^2
+$$
+
+Where:  
+- $y_i$ is the response value of observation $i$ within node $t$  
+- $\bar{y}_t$ is the mean response within node $t$
+
+2. Purity Improvement at a Split
+When node $t$ is split into left and right child nodes $t_L$ and $t_R$, the reduction in RSS is:
+
+$$
+\Delta RSS = RSS_t - (RSS_{t_L} + RSS_{t_R})
+$$
+
+3. Cumulative IncNodePurity for a Variable
+For a given variable $X_j$, the **Increase in Node Purity** is the cumulative reduction in RSS across all nodes where $X_j$ is used to split:
+
+$$
+\text{IncNodePurity}(X_j) = \sum_{k: \text{split on } X_j} \Delta RSS_k
+$$
+
+
+```{r}
+View(bag.fit$localImp)
+```
+
+Permutation Importance based on Sample-level MSE Change (localImp):
+Instead of computing the average increase in mean squared error (MSE) across all out-of-bag (OOB) samples, localImp records the impact on the prediction error for each individual OOB observation when a specific variable is permuted. This allows for a more fine-grained, sample-level understanding of variable importance.
+
+For each OOB sample and for each variable, the increase (or decrease) in prediction error after permuting that variable is recorded.
+
+How it is calculated
+
+For each observation $i$ and each variable $j$:
+
+1. Original Error (Before Permutation)  
+Compute the squared error on OOB observation $i$ without permuting variable $j$:
+
+$$
+\text{Error}_{\text{orig},i} = (y_i - \hat{y}_{\text{orig},i})^2
+$$
+
+2. Permuted Error (After Permutation) 
+Randomly permute variable $j$ among the OOB samples, make a new prediction on observation $i$, and compute the squared error:
+
+$$
+\text{Error}_{\text{perm}(j),i} = (y_i - \hat{y}_{\text{perm}(j),i})^2
+$$
+
+3. Difference (Local Importance for Observation $i$, Variable $j$):
+
+$$
+\text{localImp}_{j,i} = \text{Error}_{\text{perm}(j),i} - \text{Error}_{\text{orig},i}
+$$
+
+In the final result, each row shows the local importance scores for this variable across different observations, each column shows how important each variable is to predicting this particular observation(OOB samples).
+
+
+- **Positive value**: Permuting variable $j$ increases the prediction error for observation $i$, indicating that $j$ is important for this sample.
+- **Negative value**: Permuting variable $j$ decreases the prediction error for observation $i$, suggesting the variable might be noise or introduce instability for this sample.
+- **Near zero**: Variable $j$ has little effect on this sample’s prediction.
+
+
+
+
 ### Variable Importacne(Regression)
 
 Permutation Importance based on MSE Increase:
@@ -113,7 +214,7 @@ $$
 Where:
 
 - $\text{MSE}_{\text{orig}}$: Original OOB MSE without permutation  
-- $\text{MSE}_{\text{perm}(j)}$: OOB MSE after permuting variable $ j$
+- $\text{MSE}_{\text{perm}(j)}$: OOB MSE after permuting variable $j$
 
 A higher %IncMSE means that permuting the variable causes a larger increase in error, indicating higher importance.
 
@@ -507,4 +608,14 @@ if(length(gini_importance) > 0) {
 
 
 ```
+
+
+
+
+
+
+
+
+
+
 
