@@ -137,8 +137,72 @@ print(vi_pdp)
 ```
 
 
+## Applying the Same Method to Boosting
 
+We now apply the same PDP-based variable importance method to a **boosting model (xgboost)** on the Boston dataset.
 
+```{r}
+library(xgboost)
+library(Matrix)
+library(pdp)
+
+train_x <- as.matrix(train_dat[, -which(names(train_dat) == "medv")])
+train_y <- train_dat$medv
+
+dtrain <- xgb.DMatrix(data = train_x, label = train_y)
+
+xgb.fit <- xgboost(
+  data = dtrain,
+  objective = "reg:squarederror",
+  nrounds = 200,
+  max_depth = 3,
+  eta = 0.1,
+  verbose = 0
+)
+
+# ------------------------------------------------------------
+# 1. Build PDP for every predictor ---------------------------
+# ------------------------------------------------------------
+vars <- colnames(train_x)
+
+pdp_list_boost <- lapply(vars, function(v) {
+  cat("→ computing PDP for", v, "\n")
+  pd <- pdp::partial(
+    object = xgb.fit,
+    pred.var = v,
+    train = as.data.frame(train_x),
+    grid.resolution = 20,
+    progress = "none"
+  )
+  colnames(pd) <- c("value", "yhat")
+  pd$Variable <- v
+  pd
+})
+
+plot_data_boost <- bind_rows(pdp_list_boost)
+
+# ------------------------------------------------------------
+# 2. Faceted PDP plot for Boosting ----------------------------
+# ------------------------------------------------------------
+ggplot(plot_data_boost, aes(x = value, y = yhat)) +
+  geom_line() +
+  facet_wrap(~ Variable, scales = "free_x", ncol = 4) +
+  labs(
+    x = "Predictor value",
+    y = "Predicted medv (PDP)",
+    title = "Partial-dependence plots for boosting (xgboost) model"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+vi_pdp_boost <- plot_data_boost |>
+  group_by(Variable) |>
+  summarise(VI = sd(yhat)) |>
+  arrange(desc(VI))
+
+print(vi_pdp_boost)
+```
 
 
 
