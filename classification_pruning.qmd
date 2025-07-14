@@ -1,0 +1,189 @@
+---
+title: "Cost Complexity Pruning for Classification"
+format:
+  html:
+    embed-resources: true
+execute:
+  echo: false
+---
+
+```{r}
+source("plot_helpers.R")
+options(digits = 4)
+library(rpart)
+library(rpart.plot)
+```
+
+Decision trees are intuitive and powerful tools for classification, but their flexibility often comes at the cost of overfitting. To address this, the CART (Classification and Regression Trees) framework adopts a two-step approach: grow a large, overfit tree and then prune it back to a simpler, more generalizable version. This post demonstrates how cost complexity pruning—a core component of the CART method—is implemented in the rpart package in R. Using the kyphosis dataset, we explore how to grow a fully saturated tree and then systematically prune it by quantifying the cost reduction per split. Through annotated tree diagrams and step-by-step calculations, we visualize how pruning decisions are made and how the complexity parameter (cp) governs the resulting tree structure.
+
+
+## The Data
+
+```{r}
+head(kyphosis)
+```
+
+
+::: {.pt7}
+
+From **rpart** package
+
+`Kyphosis` -- type of deformation `absent` or `present` after surgery
+
+`Age` -- in months
+
+`Number` -- the number of vertebrae involved
+
+`Start` -- the number of the first (topmost) vertebra operated on
+
+:::
+
+## Growing the tree
+
+Following the CART algorithm, trees are grown large and then pruned back. To grow a large tree, we set the complexity parameter (`cp`) to zero, and also set `minbucket` to two so that there will be no limitations on growing the tree. Since `kyphosis` is a small dataset (81 observations), we are able to grown the tree until all nodes are pure--indicated in the tree diagram by "misclassified: 0". 
+
+
+```{r}
+#| echo: true
+kmod <- rpart(Kyphosis ~ Age + Number + Start, data = kyphosis, cp = 0, 
+              minsplit = 2)
+```
+
+
+```{r}
+#| label: fig-large-tree
+#| fig-cap: "Colors based on class probabilities"
+kmod1 <- kmod
+
+prp(kmod, extra = 1, type = 2,node.fun = node.fun.class.dev, 
+    nn = TRUE, box.palette = "BuOr")
+mtext("Fully Grown Tree", side = 3, line = 3, font = 2, cex = 1.2)
+```
+
+
+## Cost complextiy pruning
+
+First, some definitions:
+
+* A *branch* includes an internal node and all of its descendants.
+
+* *Pruning* a branch refers to removing all of the descendants of a node, i.e. collapsing them into the root node of the branch.
+
+* A *subtree* refers to the original tree after pruning.
+
+The pruning method used by **rpart** is called minimum cost complexity pruning and is described in Breiman et al. (1984). Of note: while the tree is grown using the Gini index to determine the next optimal split, pruning is based on *misclassification* rate. 
+
+The algorithm for pruning a classification tree begins with calculating the misclassification (or risk or cost or deviance) reduction *per split* for all internal nodes on the large tree. Considering the number of splits inherently incorporates a penality for the complexity of the tree.
+
+We call this measure $g(t)$, with:
+
+$g(t)$ = ((risk of branch $t$) - (risk of node $t$)) / (number of splits in branch $t$)
+
+For example, let's consider the branch with root node 22. We have:
+
+risk of branch: 0 (sum of misclassified in leaf nodes)
+risk of node: 2 (misclassified in node)
+number of splits in branch: 4 (nodes 22, 44, 89, 45)
+
+Thus $g(t) = \frac{2 - 0}{4} = 0.5$
+
+In simple language, it takes 4 splits to reduce the cost from 2 to 0, which averages to a 0.5 reduction per split. 
+
+The tree below displays $g(t)$ for all branches:
+
+
+```{r}
+#| label: fig-cost-reduction
+kmod$frame <- annotate_gt(kmod)
+kmod$frame$nn <- as.numeric(rownames(kmod$frame))
+kmod$frame$label <- create_label(kmod, gt = TRUE, cp = FALSE)
+kmod$frame$colors <- gt_calc_colors(kmod, showpruned = FALSE)
+
+
+prp(kmod, extra = 1, type = 2,
+    node.fun = node.label, 
+    nn = TRUE, box.col = kmod$frame$colors)
+mtext("Cost reduction per split", side = 3, line = 3, font = 2, cex = 1.2)
+
+```
+
+The weakest links have cost complexity of `0.5`. 
+
+In **rpart** these are scaled so that the root node has an error of 1, accomplished by dividing all values of `g(t)` by the deviance of the root node. In this case it is `17`, so the scaled complexity parameter (henceforth, cp) is `0.5/17 = 0.0294`. We will redraw the tree with the scaled values:
+
+```{r}
+#| label: fig-scaled-cost
+#| fig-cap: "cp = g(t) / deviance of root node (=17)"
+
+kmod$frame$label <- create_label(kmod, gt = TRUE)
+prp(kmod, extra = 1, type = 2,
+    node.fun = node.label, 
+    nn = TRUE, box.col = kmod$frame$colors)
+mtext("Scaled cost reduction per split (cp)", side = 3, line = 3, font = 2, cex = 1.2)
+```
+
+To save space, henceforth we will only show the scaled values. In the tree below, we also indicate the minimum `cp` value by color (purple) and show the nodes which would be removed if we prune the tree at the nodes marked "*minimum". 
+```{r}
+#| label: fig-first-pruned
+#| fig-cap: "Nodes to be pruned in grey"
+kmod$frame$label <- create_label(kmod)
+kmod$frame$colors <- gt_calc_colors(kmod)
+
+prp(kmod, extra = 1, type = 2,
+    node.fun = node.label, 
+    nn = TRUE, box.col = kmod$frame$colors)
+mtext("Weakest links: round 1", side = 3, line = 3, font = 2, cex = 1.2)
+```
+
+Note that if we prune to `cp = .03` we will obtain the tree without the grey nodes:
+
+```{r}
+colors <- kmod$frame$colors[kmod$frame$colors != "grey90"]
+```
+
+
+```{r}
+#| label: fig-pruned
+#| fig-cap: Internal nodes are shown in blue (10 in total)
+#| echo: true
+prp(prune(kmod, cp = .03), extra = 1, type = 2,
+    box.col = colors, nn = TRUE)
+mtext("Pruned tree", side = 3, line = 3, font = 2, cex = 1.2)
+```
+
+Note that before the pruning, our tree had 16 splits, and after the pruning 10 splits. Now let's consider the end of the `cptable` returned by `rpart()`:
+
+```{r}
+tail(kmod$cptable, 2)
+```
+
+We see that a tree with `cp = 0` will have 16 splits and no error, evidenced by the 0 deviance in all nodes which we observed previously. For any `cp` value above 0.02941176 (and below the next threshold, to be determined) the tree will have 10 splits.
+
+To determined the next threshold we need to recalculate $g(t)$ or `cp` (rememember `cp` = $g(t) / 17$, the deviance of the root node.) This is necessary because pruning the tree changes the cost reductions for the remaining nodes. 
+
+Now we need to continuing rececalculating $g(t)$ / `cp` for the pruned tree, find the minimum `cp` (weakest link), and the number of splits if we prune at the weakest links. The results are shown below:
+
+```{r}
+#| results: asis
+n <- nrow(kmod$cptable)
+for (i in (n-1):2) {
+  kmod <- prune(kmod, kmod$cptable[i])
+  kmod$frame <- annotate_gt(kmod)
+  kmod$frame$nn <- as.numeric(rownames(kmod$frame))
+  kmod$frame$colors <- gt_calc_colors(kmod)
+  kmod$frame$label <- create_label(kmod)
+  prp(kmod, extra = 1, type = 2,
+    node.fun = node.fun.gt.calc, 
+    nn = TRUE, box.col = kmod$frame$colors,
+    main = paste("Weakest link(s), round:", (n+1)-i))
+  cat("\n\nMinimum CP: ", min(kmod$frame$gt/kmod$frame$dev[1], na.rm = TRUE), "\n\n")
+  num_splits <- sum(kmod$frame$colors == "#c6e1ff")
+  cat("Number of splits after pruning: \n", num_splits )
+}
+```
+
+```{r}
+kmod1$cptable
+```
+
+
