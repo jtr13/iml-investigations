@@ -1,0 +1,151 @@
+---
+title: "Variable Importance Measure"
+author: "Luying Shu"
+execute:
+  echo: true
+format:
+  html:
+    fig-width: 6
+    fig-height: 4
+    out-width: 60%
+    embed-resources: true
+---
+
+Greenwell, Brandon M., Bradley C. Boehmke, and Andrew J. McCarthy. “A Simple and Effective Model-Based Variable Importance Measure.” arXiv, May 12, 2018. https://doi.org/10.48550/arXiv.1805.04755.
+
+
+## Background and Motivation
+
+Many modern machine learning methods — such as **Random Forests (RF)**, **Gradient Boosting Machines (GBM)**, **Neural Networks (NN)**, and **Support Vector Machines (SVM)** — offer strong predictive performance but suffer from limited interpretability.
+
+**Variable Importance (VI)** serves as a key tool to improve model interpretability. However, definitions of VI differ across models and are not universally comparable.
+
+For example:
+
+- **Random Forests (RF)** measure importance through node purity improvement or increases in out-of-bag (OOB) error.
+- **Linear Regression** uses **t-values** to assess variable significance.
+- **Neural Networks** often rely on methods like **Garson’s algorithm** or **Olden’s method**.
+
+Partial Dependence Plots (PDPs) help visualize the relationship between individual features and model predictions, but until now, no systematic framework has leveraged PDPs to **quantify** variable importance.
+
+## PDP Computation Process
+
+1. **Select a variable** (e.g., `lstat`) and specify a sequence of values (e.g., 0, 5, 10, ..., 35).
+
+2. **Set the selected variable to a fixed value** across all observations in the dataset (e.g., set all `lstat = 10`), while keeping other variables unchanged.
+
+3. **Use the model to predict** the target variable (e.g., `medv` for house prices).
+
+4. **Compute the mean prediction** across all observations — this represents the model’s average predicted outcome when the variable is fixed at this value.
+
+5. **Repeat Steps 2–4** for all selected values of the variable.
+
+6. **Plot the results**:
+- **X-axis**: the values of the selected variable.
+- **Y-axis**: the corresponding mean predictions.
+
+
+```{r}
+#install.packages("randomForest")
+library(randomForest)
+library(ISLR2) # for Boston dataset
+library(ggplot2)
+library(vip)
+library(dplyr)
+set.seed(150)
+train <- sample(nrow(Boston), .98*nrow(Boston))
+train_dat <- Boston[train,]
+test_dat <- Boston[-train,]
+bag.fit <- randomForest(
+  medv ~ ., data = train_dat,
+  mtry  = ncol(Boston) - 1,    # p = 12 predictors
+  ntree = 500,
+  importance = TRUE,           # store VI
+  keep.inbag = TRUE
+)
+bag.fit
+# ------------------------------------------------------------
+# 1.  Build a PDP for every predictor in train_dat ------------
+# ------------------------------------------------------------
+vars <- setdiff(names(train_dat), "medv")     # all 12 predictors
+
+pdp_list <- lapply(vars, function(v) {
+  cat("→ computing PDP for", v, "\n")         # progress message
+  pd <- pdp::partial(
+    object            = bag.fit,
+    pred.var          = v,
+    train             = train_dat,
+    grid.resolution   = 20,        # 20 grid points per variable
+    progress          = "none"     # set to "text" if you like a progress bar
+  )
+
+  colnames(pd) <- c("value", "yhat")
+  pd$Variable  <- v
+  pd
+})
+
+plot_data <- bind_rows(pdp_list)
+
+head(plot_data)
+
+# ------------------------------------------------------------
+# 2.  Faceted PDP plot ---------------------------------------
+# ------------------------------------------------------------
+ggplot(plot_data, aes(x = value, y = yhat)) +
+  geom_line() +
+  facet_wrap(~ Variable, scales = "free_x", ncol = 4) +
+  labs(
+    x     = "Predictor value",
+    y     = "Predicted medv (PDP)",
+    title = "Partial-dependence plots for bagged random-forest model"
+  ) +
+  theme_minimal()
+
+
+```
+
+
+Then we define variable importance based on the **variation (fluctuation amplitude) of PDP curves**.
+
+- If a variable’s PDP is flat, it suggests little impact on predictions.
+- If a variable’s PDP shows large fluctuations, it suggests a strong impact on predictions.
+
+
+### Calculation Method
+
+#### For Continuous Variables:
+$$
+VI(x_j) = \sqrt{\frac{1}{k-1} \sum_{i=1}^k \left(f_j(x_{ji}) - \frac{1}{k} \sum_{i=1}^k f_j(x_{ji})\right)^2}
+$$
+That is, the **standard deviation of the PDP** values.
+
+#### For Categorical Variables:
+$$
+VI(x_j) = \frac{\max_i \bar{f}_j(x_{ji}) - \min_i \bar{f}_j(x_{ji})}{4}
+$$
+That is, the **range of PDP values divided by 4**.
+
+In the example of Boston data
+
+```{r}
+vi_pdp <- plot_data |>
+  group_by(Variable) |>
+  summarise(VI = sd(yhat)) |>
+  arrange(desc(VI))
+
+print(vi_pdp)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
