@@ -105,6 +105,7 @@ bag.fit <- randomForest(
   mtry  = ncol(Boston) - 1,    # p = 12 predictors
   ntree = 500,
   importance = TRUE,           # store VI
+  importanceSD = TRUE,
   keep.inbag = TRUE,
   localImp = TRUE
 )
@@ -117,19 +118,20 @@ bag.fit$importance
 
 For Regression, the first column is the mean decrease in accuracy and the second the mean decrease in MSE. 
 
-%IncMSE — Percent Increase in Mean Squared Error
+%IncMSE — Percent Increase in Mean Squared Error - **train_dat(OOB part)**
 
 This metric shows how much the model's prediction error (MSE) increases when a variable is randomly permuted, evaluated using the Out-of-Bag (OOB) samples. It reflects how important a variable is to the model’s predictive power.
 
 How it is calculated(explained in the following section Variable Importacne(Regression)).
 
 
-IncNodePurity — Increase in Node Purity
+IncNodePurity — Increase in Node Purity - **train_dat**
+
 
 This metric is based on the reduction in residual sum of squares (RSS) whenever a variable is used to split a node in the decision trees. It represents the total improvement in node purity across all splits using that variable.
 
 How it is calculated:
-1. Residual Sum of Squares (RSS) at a Node
+1. Residual Sum of Squares (RSS) at a Node(All node split records are computed based on the entire train_dat dataset)
 For any node $t$ in a regression tree, the **RSS** is defined as:
 
 $$
@@ -164,7 +166,7 @@ Instead of computing the average increase in mean squared error (MSE) across all
 
 For each OOB sample and for each variable, the increase (or decrease) in prediction error after permuting that variable is recorded.
 
-How it is calculated
+How it is calculated:
 
 For each observation $i$ and each variable $j$:
 
@@ -195,7 +197,129 @@ In the final result, each row shows the local importance scores for this variabl
 - **Negative value**: Permuting variable $j$ decreases the prediction error for observation $i$, suggesting the variable might be noise or introduce instability for this sample.
 - **Near zero**: Variable $j$ has little effect on this sample’s prediction.
 
+```{r}
+localimp <- bag.fit$localImp
+rowavg <- rowMeans(localimp)
+rowavg
+# %IncMSE
+# distribution
+# localImp hist by Variable(...) 
+# SD
+```
 
+**Difference between bag.fit$importance & rowMeans(bag.fit$localImp)**
+
+The **`importance`** is the **global variable importance measure** directly provided by the `randomForest` package.
+The **`rowMeans(localImp)`** is the **manually calculated average of the local variable importance across all samples**.
+
+```{r}
+
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+
+global_importance <- as.data.frame(bag.fit$importance)
+local_avg <- rowMeans(localimp)
+
+# Combine into one data frame
+combined_importance <- data.frame(
+  Variable = rownames(global_importance),
+  `%IncMSE` = global_importance[, "%IncMSE"],
+  LocalMeanImportance = local_avg,
+  check.names = FALSE
+) |> arrange(desc(`%IncMSE`))
+
+print(combined_importance)
+
+df_long <- combined_importance %>%
+  pivot_longer(cols = c("%IncMSE", "LocalMeanImportance"),
+               names_to = "ImportanceType",
+               values_to = "Importance")
+
+ggplot(df_long, aes(x = reorder(Variable, -Importance), y = Importance, fill = ImportanceType)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(
+    x = "Variable",
+    y = "Importance",
+    title = "Comparison of %IncMSE and Local Mean Importance"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+**Local Importance Distributions Across Predictors**
+
+
+```{r}
+library(ggplot2)
+library(tidyr)
+
+local_imp_df <- as.data.frame(localimp)
+local_imp_df$Variable <- rownames(local_imp_df)
+local_imp_long <- pivot_longer(local_imp_df, 
+                                cols = -Variable,
+                                names_to = "Observation",
+                                values_to = "Importance")
+
+ggplot(local_imp_long, aes(x = Variable, y = Importance)) +
+  geom_boxplot(fill = "skyblue") +
+  labs(
+    x = "Variable",
+    y = "Local Importance (localImp)",
+    title = "Distribution of Local Importance for Each Variable"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+The boxplot of local importance (localImp) values provides further insights into how each predictor contributes to the random forest model’s predictions at the observation level. Variables such as **lstat** and **rm** exhibit substantial variability in their local importance, with a wide range of values and numerous extreme outliers. This indicates that these variables have a strong and heterogeneous impact on the model’s predictions across different observations. Specifically, **lstat** shows the highest dispersion, suggesting that it plays a particularly crucial role for certain subsets of the data. In contrast, variables like **chas**, **zn**, and **rad** display local importance values consistently close to zero, implying that they have minimal influence on predictions for most observations. These findings are consistent with the global variable importance measures, where **lstat** and **rm** also rank highest in terms of %IncMSE. Overall, the distribution of local importance highlights that while some variables have a uniformly weak effect, others exert substantial influence in a highly observation-specific manner, aligning with the heterogeneous nature of housing price determinants in the Boston dataset.
+
+```{r}
+bag.fit$importance
+bag.fit$importanceSD
+```
+
+The variable bag.fit$importanceSD contains the standard deviations of the %IncMSE variable importance measure across all trees for each predictor in the random forest model. It quantifies the variability (or uncertainty) of the %IncMSE values across trees.
+
+Relationship:
+
+bag.fit$importance provides the mean %IncMSE across trees (i.e., the averaged increase in MSE when permuting a variable).
+
+bag.fit$importanceSD provides the standard deviation of %IncMSE across trees, reflecting how consistent (or unstable) the importance of that variable is from tree to tree.
+
+Calculation Process: 
+
+1. Out-of-Bag (OOB) Samples for Each Tree
+For each tree in the Random Forest, there are some observations not used to train that tree (the OOB samples).
+
+2. Permutation on OOB Samples
+For each predictor (variable), permute (randomly shuffle) its values among the OOB samples. Measure the increase in the tree’s prediction error (MSE) after this permutation compared to the original OOB MSE.
+
+3. Per-Tree %IncMSE
+For each variable and for each tree, calculate the percentage increase in OOB MSE caused by permuting that variable:
+
+$$
+\%\text{IncMSE}_{j}^{(t)} = \frac{\text{MSE}_{\text{perm}(j)}^{(t)} - \text{MSE}_{\text{orig}}^{(t)}}{\text{MSE}_{\text{orig}}^{(t)}} \times 100
+$$
+
+Where:
+- $t$: index for the tree
+- $j$: index for the variable
+- $\text{MSE}_{\text{orig}}$: OOB MSE without permutation
+- $\text{MSE}_{\text{perm}}$: OOB MSE after permutation of variable $j$
+
+4. Aggregate Across Trees
+For each variable $j$, collect a set of $\%\text{IncMSE}_{j}^{(1)}, \%\text{IncMSE}_{j}^{(2)}, \ldots, \%\text{IncMSE}_{j}^{(T)}$, where $T$ is the total number of trees.
+
+5. Compute Mean and Standard Deviation
+- **Mean** across trees → stored in `bag.fit$importance`
+- **Standard Deviation** across trees → stored in `bag.fit$importanceSD`
+
+$$
+\text{SD}(\%\text{IncMSE}_j) = \sqrt{\frac{1}{T-1} \sum_{t=1}^T \left( \%\text{IncMSE}_j^{(t)} - \overline{\%\text{IncMSE}_j} \right)^2}
+$$
 
 
 ### Variable Importacne(Regression)

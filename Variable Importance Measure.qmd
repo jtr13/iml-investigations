@@ -105,6 +105,7 @@ ggplot(plot_data, aes(x = value, y = yhat)) +
 ```
 
 
+
 Then we define variable importance based on the **variation (fluctuation amplitude) of PDP curves**.
 
 - If a variable’s PDP is flat, it suggests little impact on predictions.
@@ -136,6 +137,9 @@ vi_pdp <- plot_data |>
 print(vi_pdp)
 ```
 
+```{r}
+bag.fit$importance
+```
 
 ## Applying the Same Method to Boosting
 
@@ -145,6 +149,8 @@ We now apply the same PDP-based variable importance method to a **boosting model
 library(xgboost)
 library(Matrix)
 library(pdp)
+
+set.seed(256)
 
 train_x <- as.matrix(train_dat[, -which(names(train_dat) == "medv")])
 train_y <- train_dat$medv
@@ -204,12 +210,137 @@ vi_pdp_boost <- plot_data_boost |>
 print(vi_pdp_boost)
 ```
 
+```{r}
+xgb.model.dt.tree(model = xgb.fit)
+# Returns details of all split nodes in each tree.
+```
+
+-------------------------------
 
 
 
+In the context of tree-based models such as XGBoost, three commonly reported metrics for assessing variable importance are **Gain**, **Cover**, and **Frequency**. **Gain** measures the total improvement in the model’s objective function (typically a reduction in loss) brought by splits on a particular feature, making it the most direct indicator of a feature’s contribution to predictive accuracy. **Cover** reflects the number of data instances affected by splits on the feature, providing insight into how broadly the feature influences the data partitioning process. **Frequency** simply counts how often a feature is used for splitting across all trees, capturing the model’s preference for utilizing the feature, though it does not directly reflect predictive power. Among these, **Gain** is generally regarded as the most reliable measure for evaluating a feature’s importance, while **Cover** and **Frequency** offer complementary perspectives on the breadth and frequency of feature usage within the model.
+
+```{r}
+xgb.importance(model = xgb.fit)
+```
+
+For a tree model, a data.table with the following columns:
+
+### 1. Gain
+
+**Definition:**  
+Gain measures how much a particular feature improves the model’s accuracy (reduces the loss) when it is used to split the data. It reflects the **contribution of this feature to reducing the loss function**.
+
+**How it is calculated:**
+- For each split in each tree where the feature is used, XGBoost calculates the reduction in loss (using second-order gradient information).
+- The total Gain is the **sum of all such reductions** across all trees and splits where this feature is used.
+- Finally, the Gain values are typically normalized to sum to 1.
+
+$$
+\text{Gain}_j = \frac{\text{Total reduction in loss when splitting on feature } j}{\text{Total reduction in loss for all features}}
+$$
+
+**Normalization formula:**
+$$
+\text{Normalized Gain}_j = \frac{\text{Raw Gain}_j}{\sum_{k=1}^p \text{Raw Gain}_k}
+$$
+
+**Interpretation:** A higher Gain means this feature contributes more to reducing error.
 
 
+---
+
+### 2. Cover
+
+**Definition:**  
+Cover measures the **number of data instances affected by splits on this feature**. It reflects how often and how many samples this feature helps to partition.
+
+**How it is calculated:**
+- For each split, XGBoost records the number of samples (or Hessian weight sum) at the node.
+- The Cover is the **sum of these sample counts for all splits on this feature**.
+- The Cover values are normalized to sum to 1.
+
+$$
+\text{Cover}_j = \frac{\text{Total number of samples covered by splits on feature } j}{\text{Total number of samples across all splits}}
+$$
+
+**Normalization formula:**
+$$
+\text{Normalized Cover}_j = \frac{\text{Raw Cover}_j}{\sum_{k=1}^p \text{Raw Cover}_k}
+$$
+
+**Interpretation:** A higher Cover means this feature splits on nodes that cover a larger portion of the data.
 
 
+---
+
+### 3. Frequency
+
+**Definition:**  
+Frequency measures **how often a feature is used to split** the data across all trees.
+
+**How it is calculated:**
+- Count how many times this feature is used in splits across all trees.
+- Normalize by the total number of splits across all features.
+
+$$
+\text{Frequency}_j = \frac{\text{Number of splits using feature } j}{\text{Total number of splits across all features}}
+$$
+
+**Normalization formula:**
+$$
+\text{Normalized Frequency}_j = \frac{\text{Raw Frequency}_j}{\sum_{k=1}^p \text{Raw Frequency}_k}
+$$
+
+**Interpretation:** A higher Frequency means the feature is used more often, though this does not always indicate higher predictive power.
+
+```{r}
+library(xgboost)
+library(dplyr)
+
+# Extract tree structure
+tree_dt <- xgb.model.dt.tree(model = xgb.fit)
+
+# Exclude leaf nodes
+split_dt <- tree_dt |>
+  filter(Feature != "Leaf")
+
+# Calculate raw Frequency, Gain, Cover
+frequency <- split_dt |>
+  group_by(Feature) |>
+  summarise(Frequency = n())
+
+gain <- split_dt |>
+  group_by(Feature) |>
+  summarise(Gain = sum(Quality))
+
+cover <- split_dt |>
+  group_by(Feature) |>
+  summarise(Cover = sum(Cover))
+
+# Merge
+importance_manual <- frequency |>
+  left_join(gain, by = "Feature") |>
+  left_join(cover, by = "Feature")
+
+# Normalize to sum to 1
+importance_manual <- importance_manual |>
+  mutate(
+    Gain = Gain / sum(Gain),
+    Cover = Cover / sum(Cover),
+    Frequency = Frequency / sum(Frequency)
+  ) |>
+  arrange(desc(Gain))
+
+print(importance_manual)
 
 
+```
+```{r}
+xgb.importance(model = xgb.fit)
+```
+
+```{r}
+print(vi_pdp_boost)
+```

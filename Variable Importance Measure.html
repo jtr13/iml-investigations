@@ -3468,6 +3468,24 @@ VI(x_j) = \frac{\max_i \bar{f}_j(x_{ji}) - \min_i \bar{f}_j(x_{ji})}{4}
 12 zn       0.0116</code></pre>
 </div>
 </div>
+<div class="cell">
+<div class="sourceCode cell-code" id="cb28"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb28-1"><a href="#cb28-1" aria-hidden="true" tabindex="-1"></a>bag.fit<span class="sc">$</span>importance</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>             %IncMSE IncNodePurity
+crim     5.870355594    1496.82465
+zn       0.058353156      44.73925
+indus    0.983876060     229.50228
+chas    -0.002947632      33.76824
+nox      5.128115001     946.35633
+rm      45.231719038   16575.84546
+age      2.914787692     566.81256
+dis     11.600185347    2705.81236
+rad      1.200597743     179.32954
+tax      2.319650650     586.70840
+ptratio  7.060854247     946.98032
+lstat   61.899801756   16373.95211</code></pre>
+</div>
+</div>
 </section>
 </section>
 </section>
@@ -3475,7 +3493,7 @@ VI(x_j) = \frac{\max_i \bar{f}_j(x_{ji}) - \min_i \bar{f}_j(x_{ji})}{4}
 <h2 class="anchored" data-anchor-id="applying-the-same-method-to-boosting">Applying the Same Method to Boosting</h2>
 <p>We now apply the same PDP-based variable importance method to a <strong>boosting model (xgboost)</strong> on the Boston dataset.</p>
 <div class="cell">
-<div class="sourceCode cell-code" id="cb28"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb28-1"><a href="#cb28-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(xgboost)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode cell-code" id="cb30"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb30-1"><a href="#cb30-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(xgboost)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="cell-output cell-output-stderr">
 <pre><code>Warning: package &#39;xgboost&#39; was built under R version 4.4.3</code></pre>
 </div>
@@ -3488,43 +3506,45 @@ Attaching package: &#39;xgboost&#39;</code></pre>
 
     slice</code></pre>
 </div>
-<div class="sourceCode cell-code" id="cb32"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb32-1"><a href="#cb32-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(Matrix)</span>
-<span id="cb32-2"><a href="#cb32-2" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(pdp)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode cell-code" id="cb34"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb34-1"><a href="#cb34-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(Matrix)</span>
+<span id="cb34-2"><a href="#cb34-2" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(pdp)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="cell-output cell-output-stderr">
 <pre><code>Warning: package &#39;pdp&#39; was built under R version 4.4.3</code></pre>
 </div>
-<div class="sourceCode cell-code" id="cb34"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb34-1"><a href="#cb34-1" aria-hidden="true" tabindex="-1"></a>train_x <span class="ot">&lt;-</span> <span class="fu">as.matrix</span>(train_dat[, <span class="sc">-</span><span class="fu">which</span>(<span class="fu">names</span>(train_dat) <span class="sc">==</span> <span class="st">&quot;medv&quot;</span>)])</span>
-<span id="cb34-2"><a href="#cb34-2" aria-hidden="true" tabindex="-1"></a>train_y <span class="ot">&lt;-</span> train_dat<span class="sc">$</span>medv</span>
-<span id="cb34-3"><a href="#cb34-3" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb34-4"><a href="#cb34-4" aria-hidden="true" tabindex="-1"></a>dtrain <span class="ot">&lt;-</span> <span class="fu">xgb.DMatrix</span>(<span class="at">data =</span> train_x, <span class="at">label =</span> train_y)</span>
-<span id="cb34-5"><a href="#cb34-5" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb34-6"><a href="#cb34-6" aria-hidden="true" tabindex="-1"></a>xgb.fit <span class="ot">&lt;-</span> <span class="fu">xgboost</span>(</span>
-<span id="cb34-7"><a href="#cb34-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">data =</span> dtrain,</span>
-<span id="cb34-8"><a href="#cb34-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">objective =</span> <span class="st">&quot;reg:squarederror&quot;</span>,</span>
-<span id="cb34-9"><a href="#cb34-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">nrounds =</span> <span class="dv">200</span>,</span>
-<span id="cb34-10"><a href="#cb34-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">max_depth =</span> <span class="dv">3</span>,</span>
-<span id="cb34-11"><a href="#cb34-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">eta =</span> <span class="fl">0.1</span>,</span>
-<span id="cb34-12"><a href="#cb34-12" aria-hidden="true" tabindex="-1"></a>  <span class="at">verbose =</span> <span class="dv">0</span></span>
-<span id="cb34-13"><a href="#cb34-13" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb34-14"><a href="#cb34-14" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb34-15"><a href="#cb34-15" aria-hidden="true" tabindex="-1"></a><span class="co"># ------------------------------------------------------------</span></span>
-<span id="cb34-16"><a href="#cb34-16" aria-hidden="true" tabindex="-1"></a><span class="co"># 1. Build PDP for every predictor ---------------------------</span></span>
-<span id="cb34-17"><a href="#cb34-17" aria-hidden="true" tabindex="-1"></a><span class="co"># ------------------------------------------------------------</span></span>
-<span id="cb34-18"><a href="#cb34-18" aria-hidden="true" tabindex="-1"></a>vars <span class="ot">&lt;-</span> <span class="fu">colnames</span>(train_x)</span>
-<span id="cb34-19"><a href="#cb34-19" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb34-20"><a href="#cb34-20" aria-hidden="true" tabindex="-1"></a>pdp_list_boost <span class="ot">&lt;-</span> <span class="fu">lapply</span>(vars, <span class="cf">function</span>(v) {</span>
-<span id="cb34-21"><a href="#cb34-21" aria-hidden="true" tabindex="-1"></a>  <span class="fu">cat</span>(<span class="st">&quot;→ computing PDP for&quot;</span>, v, <span class="st">&quot;</span><span class="sc">\n</span><span class="st">&quot;</span>)</span>
-<span id="cb34-22"><a href="#cb34-22" aria-hidden="true" tabindex="-1"></a>  pd <span class="ot">&lt;-</span> pdp<span class="sc">::</span><span class="fu">partial</span>(</span>
-<span id="cb34-23"><a href="#cb34-23" aria-hidden="true" tabindex="-1"></a>    <span class="at">object =</span> xgb.fit,</span>
-<span id="cb34-24"><a href="#cb34-24" aria-hidden="true" tabindex="-1"></a>    <span class="at">pred.var =</span> v,</span>
-<span id="cb34-25"><a href="#cb34-25" aria-hidden="true" tabindex="-1"></a>    <span class="at">train =</span> <span class="fu">as.data.frame</span>(train_x),</span>
-<span id="cb34-26"><a href="#cb34-26" aria-hidden="true" tabindex="-1"></a>    <span class="at">grid.resolution =</span> <span class="dv">20</span>,</span>
-<span id="cb34-27"><a href="#cb34-27" aria-hidden="true" tabindex="-1"></a>    <span class="at">progress =</span> <span class="st">&quot;none&quot;</span></span>
-<span id="cb34-28"><a href="#cb34-28" aria-hidden="true" tabindex="-1"></a>  )</span>
-<span id="cb34-29"><a href="#cb34-29" aria-hidden="true" tabindex="-1"></a>  <span class="fu">colnames</span>(pd) <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">&quot;value&quot;</span>, <span class="st">&quot;yhat&quot;</span>)</span>
-<span id="cb34-30"><a href="#cb34-30" aria-hidden="true" tabindex="-1"></a>  pd<span class="sc">$</span>Variable <span class="ot">&lt;-</span> v</span>
-<span id="cb34-31"><a href="#cb34-31" aria-hidden="true" tabindex="-1"></a>  pd</span>
-<span id="cb34-32"><a href="#cb34-32" aria-hidden="true" tabindex="-1"></a>})</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode cell-code" id="cb36"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb36-1"><a href="#cb36-1" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">256</span>)</span>
+<span id="cb36-2"><a href="#cb36-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb36-3"><a href="#cb36-3" aria-hidden="true" tabindex="-1"></a>train_x <span class="ot">&lt;-</span> <span class="fu">as.matrix</span>(train_dat[, <span class="sc">-</span><span class="fu">which</span>(<span class="fu">names</span>(train_dat) <span class="sc">==</span> <span class="st">&quot;medv&quot;</span>)])</span>
+<span id="cb36-4"><a href="#cb36-4" aria-hidden="true" tabindex="-1"></a>train_y <span class="ot">&lt;-</span> train_dat<span class="sc">$</span>medv</span>
+<span id="cb36-5"><a href="#cb36-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb36-6"><a href="#cb36-6" aria-hidden="true" tabindex="-1"></a>dtrain <span class="ot">&lt;-</span> <span class="fu">xgb.DMatrix</span>(<span class="at">data =</span> train_x, <span class="at">label =</span> train_y)</span>
+<span id="cb36-7"><a href="#cb36-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb36-8"><a href="#cb36-8" aria-hidden="true" tabindex="-1"></a>xgb.fit <span class="ot">&lt;-</span> <span class="fu">xgboost</span>(</span>
+<span id="cb36-9"><a href="#cb36-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">data =</span> dtrain,</span>
+<span id="cb36-10"><a href="#cb36-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">objective =</span> <span class="st">&quot;reg:squarederror&quot;</span>,</span>
+<span id="cb36-11"><a href="#cb36-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">nrounds =</span> <span class="dv">200</span>,</span>
+<span id="cb36-12"><a href="#cb36-12" aria-hidden="true" tabindex="-1"></a>  <span class="at">max_depth =</span> <span class="dv">3</span>,</span>
+<span id="cb36-13"><a href="#cb36-13" aria-hidden="true" tabindex="-1"></a>  <span class="at">eta =</span> <span class="fl">0.1</span>,</span>
+<span id="cb36-14"><a href="#cb36-14" aria-hidden="true" tabindex="-1"></a>  <span class="at">verbose =</span> <span class="dv">0</span></span>
+<span id="cb36-15"><a href="#cb36-15" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb36-16"><a href="#cb36-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb36-17"><a href="#cb36-17" aria-hidden="true" tabindex="-1"></a><span class="co"># ------------------------------------------------------------</span></span>
+<span id="cb36-18"><a href="#cb36-18" aria-hidden="true" tabindex="-1"></a><span class="co"># 1. Build PDP for every predictor ---------------------------</span></span>
+<span id="cb36-19"><a href="#cb36-19" aria-hidden="true" tabindex="-1"></a><span class="co"># ------------------------------------------------------------</span></span>
+<span id="cb36-20"><a href="#cb36-20" aria-hidden="true" tabindex="-1"></a>vars <span class="ot">&lt;-</span> <span class="fu">colnames</span>(train_x)</span>
+<span id="cb36-21"><a href="#cb36-21" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb36-22"><a href="#cb36-22" aria-hidden="true" tabindex="-1"></a>pdp_list_boost <span class="ot">&lt;-</span> <span class="fu">lapply</span>(vars, <span class="cf">function</span>(v) {</span>
+<span id="cb36-23"><a href="#cb36-23" aria-hidden="true" tabindex="-1"></a>  <span class="fu">cat</span>(<span class="st">&quot;→ computing PDP for&quot;</span>, v, <span class="st">&quot;</span><span class="sc">\n</span><span class="st">&quot;</span>)</span>
+<span id="cb36-24"><a href="#cb36-24" aria-hidden="true" tabindex="-1"></a>  pd <span class="ot">&lt;-</span> pdp<span class="sc">::</span><span class="fu">partial</span>(</span>
+<span id="cb36-25"><a href="#cb36-25" aria-hidden="true" tabindex="-1"></a>    <span class="at">object =</span> xgb.fit,</span>
+<span id="cb36-26"><a href="#cb36-26" aria-hidden="true" tabindex="-1"></a>    <span class="at">pred.var =</span> v,</span>
+<span id="cb36-27"><a href="#cb36-27" aria-hidden="true" tabindex="-1"></a>    <span class="at">train =</span> <span class="fu">as.data.frame</span>(train_x),</span>
+<span id="cb36-28"><a href="#cb36-28" aria-hidden="true" tabindex="-1"></a>    <span class="at">grid.resolution =</span> <span class="dv">20</span>,</span>
+<span id="cb36-29"><a href="#cb36-29" aria-hidden="true" tabindex="-1"></a>    <span class="at">progress =</span> <span class="st">&quot;none&quot;</span></span>
+<span id="cb36-30"><a href="#cb36-30" aria-hidden="true" tabindex="-1"></a>  )</span>
+<span id="cb36-31"><a href="#cb36-31" aria-hidden="true" tabindex="-1"></a>  <span class="fu">colnames</span>(pd) <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">&quot;value&quot;</span>, <span class="st">&quot;yhat&quot;</span>)</span>
+<span id="cb36-32"><a href="#cb36-32" aria-hidden="true" tabindex="-1"></a>  pd<span class="sc">$</span>Variable <span class="ot">&lt;-</span> v</span>
+<span id="cb36-33"><a href="#cb36-33" aria-hidden="true" tabindex="-1"></a>  pd</span>
+<span id="cb36-34"><a href="#cb36-34" aria-hidden="true" tabindex="-1"></a>})</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="cell-output cell-output-stdout">
 <pre><code>→ computing PDP for crim 
 → computing PDP for zn 
@@ -3539,20 +3559,20 @@ Attaching package: &#39;xgboost&#39;</code></pre>
 → computing PDP for ptratio 
 → computing PDP for lstat </code></pre>
 </div>
-<div class="sourceCode cell-code" id="cb36"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb36-1"><a href="#cb36-1" aria-hidden="true" tabindex="-1"></a>plot_data_boost <span class="ot">&lt;-</span> <span class="fu">bind_rows</span>(pdp_list_boost)</span>
-<span id="cb36-2"><a href="#cb36-2" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb36-3"><a href="#cb36-3" aria-hidden="true" tabindex="-1"></a><span class="co"># ------------------------------------------------------------</span></span>
-<span id="cb36-4"><a href="#cb36-4" aria-hidden="true" tabindex="-1"></a><span class="co"># 2. Faceted PDP plot for Boosting ----------------------------</span></span>
-<span id="cb36-5"><a href="#cb36-5" aria-hidden="true" tabindex="-1"></a><span class="co"># ------------------------------------------------------------</span></span>
-<span id="cb36-6"><a href="#cb36-6" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>(plot_data_boost, <span class="fu">aes</span>(<span class="at">x =</span> value, <span class="at">y =</span> yhat)) <span class="sc">+</span></span>
-<span id="cb36-7"><a href="#cb36-7" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_line</span>() <span class="sc">+</span></span>
-<span id="cb36-8"><a href="#cb36-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">facet_wrap</span>(<span class="sc">~</span> Variable, <span class="at">scales =</span> <span class="st">&quot;free_x&quot;</span>, <span class="at">ncol =</span> <span class="dv">4</span>) <span class="sc">+</span></span>
-<span id="cb36-9"><a href="#cb36-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(</span>
-<span id="cb36-10"><a href="#cb36-10" aria-hidden="true" tabindex="-1"></a>    <span class="at">x =</span> <span class="st">&quot;Predictor value&quot;</span>,</span>
-<span id="cb36-11"><a href="#cb36-11" aria-hidden="true" tabindex="-1"></a>    <span class="at">y =</span> <span class="st">&quot;Predicted medv (PDP)&quot;</span>,</span>
-<span id="cb36-12"><a href="#cb36-12" aria-hidden="true" tabindex="-1"></a>    <span class="at">title =</span> <span class="st">&quot;Partial-dependence plots for boosting (xgboost) model&quot;</span></span>
-<span id="cb36-13"><a href="#cb36-13" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
-<span id="cb36-14"><a href="#cb36-14" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode cell-code" id="cb38"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb38-1"><a href="#cb38-1" aria-hidden="true" tabindex="-1"></a>plot_data_boost <span class="ot">&lt;-</span> <span class="fu">bind_rows</span>(pdp_list_boost)</span>
+<span id="cb38-2"><a href="#cb38-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb38-3"><a href="#cb38-3" aria-hidden="true" tabindex="-1"></a><span class="co"># ------------------------------------------------------------</span></span>
+<span id="cb38-4"><a href="#cb38-4" aria-hidden="true" tabindex="-1"></a><span class="co"># 2. Faceted PDP plot for Boosting ----------------------------</span></span>
+<span id="cb38-5"><a href="#cb38-5" aria-hidden="true" tabindex="-1"></a><span class="co"># ------------------------------------------------------------</span></span>
+<span id="cb38-6"><a href="#cb38-6" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>(plot_data_boost, <span class="fu">aes</span>(<span class="at">x =</span> value, <span class="at">y =</span> yhat)) <span class="sc">+</span></span>
+<span id="cb38-7"><a href="#cb38-7" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_line</span>() <span class="sc">+</span></span>
+<span id="cb38-8"><a href="#cb38-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">facet_wrap</span>(<span class="sc">~</span> Variable, <span class="at">scales =</span> <span class="st">&quot;free_x&quot;</span>, <span class="at">ncol =</span> <span class="dv">4</span>) <span class="sc">+</span></span>
+<span id="cb38-9"><a href="#cb38-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(</span>
+<span id="cb38-10"><a href="#cb38-10" aria-hidden="true" tabindex="-1"></a>    <span class="at">x =</span> <span class="st">&quot;Predictor value&quot;</span>,</span>
+<span id="cb38-11"><a href="#cb38-11" aria-hidden="true" tabindex="-1"></a>    <span class="at">y =</span> <span class="st">&quot;Predicted medv (PDP)&quot;</span>,</span>
+<span id="cb38-12"><a href="#cb38-12" aria-hidden="true" tabindex="-1"></a>    <span class="at">title =</span> <span class="st">&quot;Partial-dependence plots for boosting (xgboost) model&quot;</span></span>
+<span id="cb38-13"><a href="#cb38-13" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
+<span id="cb38-14"><a href="#cb38-14" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="cell-output-display">
 <div>
 <figure class="figure">
@@ -3562,12 +3582,12 @@ Attaching package: &#39;xgboost&#39;</code></pre>
 </div>
 </div>
 <div class="cell">
-<div class="sourceCode cell-code" id="cb37"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb37-1"><a href="#cb37-1" aria-hidden="true" tabindex="-1"></a>vi_pdp_boost <span class="ot">&lt;-</span> plot_data_boost <span class="sc">|&gt;</span></span>
-<span id="cb37-2"><a href="#cb37-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">group_by</span>(Variable) <span class="sc">|&gt;</span></span>
-<span id="cb37-3"><a href="#cb37-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">summarise</span>(<span class="at">VI =</span> <span class="fu">sd</span>(yhat)) <span class="sc">|&gt;</span></span>
-<span id="cb37-4"><a href="#cb37-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">arrange</span>(<span class="fu">desc</span>(VI))</span>
-<span id="cb37-5"><a href="#cb37-5" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb37-6"><a href="#cb37-6" aria-hidden="true" tabindex="-1"></a><span class="fu">print</span>(vi_pdp_boost)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode cell-code" id="cb39"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb39-1"><a href="#cb39-1" aria-hidden="true" tabindex="-1"></a>vi_pdp_boost <span class="ot">&lt;-</span> plot_data_boost <span class="sc">|&gt;</span></span>
+<span id="cb39-2"><a href="#cb39-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">group_by</span>(Variable) <span class="sc">|&gt;</span></span>
+<span id="cb39-3"><a href="#cb39-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">summarise</span>(<span class="at">VI =</span> <span class="fu">sd</span>(yhat)) <span class="sc">|&gt;</span></span>
+<span id="cb39-4"><a href="#cb39-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">arrange</span>(<span class="fu">desc</span>(VI))</span>
+<span id="cb39-5"><a href="#cb39-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb39-6"><a href="#cb39-6" aria-hidden="true" tabindex="-1"></a><span class="fu">print</span>(vi_pdp_boost)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="cell-output cell-output-stdout">
 <pre><code># A tibble: 12 × 2
    Variable     VI
@@ -3586,6 +3606,197 @@ Attaching package: &#39;xgboost&#39;</code></pre>
 12 zn       0.0802</code></pre>
 </div>
 </div>
+<div class="cell">
+<div class="sourceCode cell-code" id="cb41"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb41-1"><a href="#cb41-1" aria-hidden="true" tabindex="-1"></a><span class="fu">xgb.model.dt.tree</span>(<span class="at">model =</span> xgb.fit)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>       Tree  Node     ID Feature     Split    Yes     No Missing       Quality
+      &lt;int&gt; &lt;int&gt; &lt;char&gt;  &lt;char&gt;     &lt;num&gt; &lt;char&gt; &lt;char&gt;  &lt;char&gt;         &lt;num&gt;
+   1:     0     0    0-0   lstat  9.725000    0-1    0-2     0-1  1.728858e+04
+   2:     0     1    0-1      rm  7.141000    0-3    0-4     0-3  6.550609e+03
+   3:     0     2    0-2   lstat 16.084999    0-5    0-6     0-5  2.391336e+03
+   4:     0     3    0-3   lstat  5.145000    0-7    0-8     0-7  5.396016e+02
+   5:     0     4    0-4    crim  2.742235    0-9   0-10     0-9  1.068906e+02
+  ---                                                                         
+2786:   199    10 199-10    Leaf        NA   &lt;NA&gt;   &lt;NA&gt;    &lt;NA&gt;  2.271271e-02
+2787:   199    11 199-11    Leaf        NA   &lt;NA&gt;   &lt;NA&gt;    &lt;NA&gt; -3.144046e-02
+2788:   199    12 199-12    Leaf        NA   &lt;NA&gt;   &lt;NA&gt;    &lt;NA&gt; -1.414480e-01
+2789:   199    13 199-13    Leaf        NA   &lt;NA&gt;   &lt;NA&gt;    &lt;NA&gt; -4.791681e-02
+2790:   199    14 199-14    Leaf        NA   &lt;NA&gt;   &lt;NA&gt;    &lt;NA&gt;  1.324531e-03
+      Cover
+      &lt;num&gt;
+   1:   495
+   2:   207
+   3:   288
+   4:   159
+   5:    48
+  ---      
+2786:     2
+2787:    12
+2788:     1
+2789:    12
+2790:   416</code></pre>
+</div>
+<div class="sourceCode cell-code" id="cb43"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb43-1"><a href="#cb43-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Returns details of all split nodes in each tree.</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+<hr>
+<p>In the context of tree-based models such as XGBoost, three commonly reported metrics for assessing variable importance are <strong>Gain</strong>, <strong>Cover</strong>, and <strong>Frequency</strong>. <strong>Gain</strong> measures the total improvement in the model’s objective function (typically a reduction in loss) brought by splits on a particular feature, making it the most direct indicator of a feature’s contribution to predictive accuracy. <strong>Cover</strong> reflects the number of data instances affected by splits on the feature, providing insight into how broadly the feature influences the data partitioning process. <strong>Frequency</strong> simply counts how often a feature is used for splitting across all trees, capturing the model’s preference for utilizing the feature, though it does not directly reflect predictive power. Among these, <strong>Gain</strong> is generally regarded as the most reliable measure for evaluating a feature’s importance, while <strong>Cover</strong> and <strong>Frequency</strong> offer complementary perspectives on the breadth and frequency of feature usage within the model.</p>
+<div class="cell">
+<div class="sourceCode cell-code" id="cb44"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb44-1"><a href="#cb44-1" aria-hidden="true" tabindex="-1"></a><span class="fu">xgb.importance</span>(<span class="at">model =</span> xgb.fit)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>    Feature         Gain       Cover   Frequency
+     &lt;char&gt;        &lt;num&gt;       &lt;num&gt;       &lt;num&gt;
+ 1:   lstat 0.4666867248 0.151397296 0.121235521
+ 2:      rm 0.3516728249 0.169657181 0.142857143
+ 3:     dis 0.0661602155 0.160901333 0.169884170
+ 4:     nox 0.0325665434 0.081286483 0.090347490
+ 5: ptratio 0.0281473098 0.034366195 0.035521236
+ 6:    crim 0.0272196300 0.113421588 0.174517375
+ 7:     tax 0.0120808555 0.068833497 0.062548263
+ 8:     age 0.0091868719 0.100833794 0.108880309
+ 9:   indus 0.0025752901 0.073514741 0.051737452
+10:     rad 0.0025530525 0.032111514 0.019305019
+11:      zn 0.0006141354 0.005456396 0.016988417
+12:    chas 0.0005365462 0.008219981 0.006177606</code></pre>
+</div>
+</div>
+<p>For a tree model, a data.table with the following columns:</p>
+<section id="gain" class="level3">
+<h3 class="anchored" data-anchor-id="gain">1. Gain</h3>
+<p><strong>Definition:</strong><br>
+Gain measures how much a particular feature improves the model’s accuracy (reduces the loss) when it is used to split the data. It reflects the <strong>contribution of this feature to reducing the loss function</strong>.</p>
+<p><strong>How it is calculated:</strong> - For each split in each tree where the feature is used, XGBoost calculates the reduction in loss (using second-order gradient information). - The total Gain is the <strong>sum of all such reductions</strong> across all trees and splits where this feature is used. - Finally, the Gain values are typically normalized to sum to 1.</p>
+<p><span class="math display">\[
+\text{Gain}_j = \frac{\text{Total reduction in loss when splitting on feature } j}{\text{Total reduction in loss for all features}}
+\]</span></p>
+<p><strong>Normalization formula:</strong> <span class="math display">\[
+\text{Normalized Gain}_j = \frac{\text{Raw Gain}_j}{\sum_{k=1}^p \text{Raw Gain}_k}
+\]</span></p>
+<p><strong>Interpretation:</strong> A higher Gain means this feature contributes more to reducing error.</p>
+<hr>
+</section>
+<section id="cover" class="level3">
+<h3 class="anchored" data-anchor-id="cover">2. Cover</h3>
+<p><strong>Definition:</strong><br>
+Cover measures the <strong>number of data instances affected by splits on this feature</strong>. It reflects how often and how many samples this feature helps to partition.</p>
+<p><strong>How it is calculated:</strong> - For each split, XGBoost records the number of samples (or Hessian weight sum) at the node. - The Cover is the <strong>sum of these sample counts for all splits on this feature</strong>. - The Cover values are normalized to sum to 1.</p>
+<p><span class="math display">\[
+\text{Cover}_j = \frac{\text{Total number of samples covered by splits on feature } j}{\text{Total number of samples across all splits}}
+\]</span></p>
+<p><strong>Normalization formula:</strong> <span class="math display">\[
+\text{Normalized Cover}_j = \frac{\text{Raw Cover}_j}{\sum_{k=1}^p \text{Raw Cover}_k}
+\]</span></p>
+<p><strong>Interpretation:</strong> A higher Cover means this feature splits on nodes that cover a larger portion of the data.</p>
+<hr>
+</section>
+<section id="frequency" class="level3">
+<h3 class="anchored" data-anchor-id="frequency">3. Frequency</h3>
+<p><strong>Definition:</strong><br>
+Frequency measures <strong>how often a feature is used to split</strong> the data across all trees.</p>
+<p><strong>How it is calculated:</strong> - Count how many times this feature is used in splits across all trees. - Normalize by the total number of splits across all features.</p>
+<p><span class="math display">\[
+\text{Frequency}_j = \frac{\text{Number of splits using feature } j}{\text{Total number of splits across all features}}
+\]</span></p>
+<p><strong>Normalization formula:</strong> <span class="math display">\[
+\text{Normalized Frequency}_j = \frac{\text{Raw Frequency}_j}{\sum_{k=1}^p \text{Raw Frequency}_k}
+\]</span></p>
+<p><strong>Interpretation:</strong> A higher Frequency means the feature is used more often, though this does not always indicate higher predictive power.</p>
+<div class="cell">
+<div class="sourceCode cell-code" id="cb46"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb46-1"><a href="#cb46-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(xgboost)</span>
+<span id="cb46-2"><a href="#cb46-2" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(dplyr)</span>
+<span id="cb46-3"><a href="#cb46-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb46-4"><a href="#cb46-4" aria-hidden="true" tabindex="-1"></a><span class="co"># Extract tree structure</span></span>
+<span id="cb46-5"><a href="#cb46-5" aria-hidden="true" tabindex="-1"></a>tree_dt <span class="ot">&lt;-</span> <span class="fu">xgb.model.dt.tree</span>(<span class="at">model =</span> xgb.fit)</span>
+<span id="cb46-6"><a href="#cb46-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb46-7"><a href="#cb46-7" aria-hidden="true" tabindex="-1"></a><span class="co"># Exclude leaf nodes</span></span>
+<span id="cb46-8"><a href="#cb46-8" aria-hidden="true" tabindex="-1"></a>split_dt <span class="ot">&lt;-</span> tree_dt <span class="sc">|&gt;</span></span>
+<span id="cb46-9"><a href="#cb46-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(Feature <span class="sc">!=</span> <span class="st">&quot;Leaf&quot;</span>)</span>
+<span id="cb46-10"><a href="#cb46-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb46-11"><a href="#cb46-11" aria-hidden="true" tabindex="-1"></a><span class="co"># Calculate raw Frequency, Gain, Cover</span></span>
+<span id="cb46-12"><a href="#cb46-12" aria-hidden="true" tabindex="-1"></a>frequency <span class="ot">&lt;-</span> split_dt <span class="sc">|&gt;</span></span>
+<span id="cb46-13"><a href="#cb46-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">group_by</span>(Feature) <span class="sc">|&gt;</span></span>
+<span id="cb46-14"><a href="#cb46-14" aria-hidden="true" tabindex="-1"></a>  <span class="fu">summarise</span>(<span class="at">Frequency =</span> <span class="fu">n</span>())</span>
+<span id="cb46-15"><a href="#cb46-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb46-16"><a href="#cb46-16" aria-hidden="true" tabindex="-1"></a>gain <span class="ot">&lt;-</span> split_dt <span class="sc">|&gt;</span></span>
+<span id="cb46-17"><a href="#cb46-17" aria-hidden="true" tabindex="-1"></a>  <span class="fu">group_by</span>(Feature) <span class="sc">|&gt;</span></span>
+<span id="cb46-18"><a href="#cb46-18" aria-hidden="true" tabindex="-1"></a>  <span class="fu">summarise</span>(<span class="at">Gain =</span> <span class="fu">sum</span>(Quality))</span>
+<span id="cb46-19"><a href="#cb46-19" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb46-20"><a href="#cb46-20" aria-hidden="true" tabindex="-1"></a>cover <span class="ot">&lt;-</span> split_dt <span class="sc">|&gt;</span></span>
+<span id="cb46-21"><a href="#cb46-21" aria-hidden="true" tabindex="-1"></a>  <span class="fu">group_by</span>(Feature) <span class="sc">|&gt;</span></span>
+<span id="cb46-22"><a href="#cb46-22" aria-hidden="true" tabindex="-1"></a>  <span class="fu">summarise</span>(<span class="at">Cover =</span> <span class="fu">sum</span>(Cover))</span>
+<span id="cb46-23"><a href="#cb46-23" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb46-24"><a href="#cb46-24" aria-hidden="true" tabindex="-1"></a><span class="co"># Merge</span></span>
+<span id="cb46-25"><a href="#cb46-25" aria-hidden="true" tabindex="-1"></a>importance_manual <span class="ot">&lt;-</span> frequency <span class="sc">|&gt;</span></span>
+<span id="cb46-26"><a href="#cb46-26" aria-hidden="true" tabindex="-1"></a>  <span class="fu">left_join</span>(gain, <span class="at">by =</span> <span class="st">&quot;Feature&quot;</span>) <span class="sc">|&gt;</span></span>
+<span id="cb46-27"><a href="#cb46-27" aria-hidden="true" tabindex="-1"></a>  <span class="fu">left_join</span>(cover, <span class="at">by =</span> <span class="st">&quot;Feature&quot;</span>)</span>
+<span id="cb46-28"><a href="#cb46-28" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb46-29"><a href="#cb46-29" aria-hidden="true" tabindex="-1"></a><span class="co"># Normalize to sum to 1</span></span>
+<span id="cb46-30"><a href="#cb46-30" aria-hidden="true" tabindex="-1"></a>importance_manual <span class="ot">&lt;-</span> importance_manual <span class="sc">|&gt;</span></span>
+<span id="cb46-31"><a href="#cb46-31" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(</span>
+<span id="cb46-32"><a href="#cb46-32" aria-hidden="true" tabindex="-1"></a>    <span class="at">Gain =</span> Gain <span class="sc">/</span> <span class="fu">sum</span>(Gain),</span>
+<span id="cb46-33"><a href="#cb46-33" aria-hidden="true" tabindex="-1"></a>    <span class="at">Cover =</span> Cover <span class="sc">/</span> <span class="fu">sum</span>(Cover),</span>
+<span id="cb46-34"><a href="#cb46-34" aria-hidden="true" tabindex="-1"></a>    <span class="at">Frequency =</span> Frequency <span class="sc">/</span> <span class="fu">sum</span>(Frequency)</span>
+<span id="cb46-35"><a href="#cb46-35" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">|&gt;</span></span>
+<span id="cb46-36"><a href="#cb46-36" aria-hidden="true" tabindex="-1"></a>  <span class="fu">arrange</span>(<span class="fu">desc</span>(Gain))</span>
+<span id="cb46-37"><a href="#cb46-37" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb46-38"><a href="#cb46-38" aria-hidden="true" tabindex="-1"></a><span class="fu">print</span>(importance_manual)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stdout">
+<pre><code># A tibble: 12 × 4
+   Feature Frequency     Gain   Cover
+   &lt;chr&gt;       &lt;dbl&gt;    &lt;dbl&gt;   &lt;dbl&gt;
+ 1 lstat     0.121   0.467    0.151  
+ 2 rm        0.143   0.352    0.170  
+ 3 dis       0.170   0.0662   0.161  
+ 4 nox       0.0903  0.0326   0.0813 
+ 5 ptratio   0.0355  0.0281   0.0344 
+ 6 crim      0.175   0.0272   0.113  
+ 7 tax       0.0625  0.0121   0.0688 
+ 8 age       0.109   0.00919  0.101  
+ 9 indus     0.0517  0.00258  0.0735 
+10 rad       0.0193  0.00255  0.0321 
+11 zn        0.0170  0.000614 0.00546
+12 chas      0.00618 0.000537 0.00822</code></pre>
+</div>
+</div>
+<div class="cell">
+<div class="sourceCode cell-code" id="cb48"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb48-1"><a href="#cb48-1" aria-hidden="true" tabindex="-1"></a><span class="fu">xgb.importance</span>(<span class="at">model =</span> xgb.fit)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>    Feature         Gain       Cover   Frequency
+     &lt;char&gt;        &lt;num&gt;       &lt;num&gt;       &lt;num&gt;
+ 1:   lstat 0.4666867248 0.151397296 0.121235521
+ 2:      rm 0.3516728249 0.169657181 0.142857143
+ 3:     dis 0.0661602155 0.160901333 0.169884170
+ 4:     nox 0.0325665434 0.081286483 0.090347490
+ 5: ptratio 0.0281473098 0.034366195 0.035521236
+ 6:    crim 0.0272196300 0.113421588 0.174517375
+ 7:     tax 0.0120808555 0.068833497 0.062548263
+ 8:     age 0.0091868719 0.100833794 0.108880309
+ 9:   indus 0.0025752901 0.073514741 0.051737452
+10:     rad 0.0025530525 0.032111514 0.019305019
+11:      zn 0.0006141354 0.005456396 0.016988417
+12:    chas 0.0005365462 0.008219981 0.006177606</code></pre>
+</div>
+</div>
+<div class="cell">
+<div class="sourceCode cell-code" id="cb50"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb50-1"><a href="#cb50-1" aria-hidden="true" tabindex="-1"></a><span class="fu">print</span>(vi_pdp_boost)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stdout">
+<pre><code># A tibble: 12 × 2
+   Variable     VI
+   &lt;chr&gt;     &lt;dbl&gt;
+ 1 rm       4.72  
+ 2 lstat    4.14  
+ 3 dis      3.64  
+ 4 ptratio  1.05  
+ 5 nox      0.893 
+ 6 tax      0.884 
+ 7 crim     0.834 
+ 8 age      0.820 
+ 9 rad      0.338 
+10 indus    0.289 
+11 chas     0.216 
+12 zn       0.0802</code></pre>
+</div>
+</div>
+</section>
 </section>
 
 </main>
