@@ -248,6 +248,11 @@ ggplot(df_long, aes(x = reorder(Variable, -Importance), y = Importance, fill = I
 
 ```
 
+
+
+##### Nodepurity
+
+
 **Local Importance Distributions Across Predictors**
 
 
@@ -320,6 +325,75 @@ For each variable $j$, collect a set of $\%\text{IncMSE}_{j}^{(1)}, \%\text{IncM
 $$
 \text{SD}(\%\text{IncMSE}_j) = \sqrt{\frac{1}{T-1} \sum_{t=1}^T \left( \%\text{IncMSE}_j^{(t)} - \overline{\%\text{IncMSE}_j} \right)^2}
 $$
+
+#### SD,localImp
+```{r}
+impsd <- bag.fit$importanceSD
+local_sd <- apply(localimp, 1, sd, na.rm = TRUE)
+# mean(localImp) as baseline MSE
+local_mean <- apply(localimp, 1, function(x) mean(abs(x), na.rm = TRUE))
+local_sd_percent <- local_sd / local_mean  # 转为“相对变异程度（%）”
+
+local_sd_percent
+impsd
+```
+
+### Interpretation of `local_sd_percent`
+
+The `local_sd_percent` metric measures the **relative variability** of a variable’s local importance across individual observations. It is calculated as:
+
+$$
+\text{local_sd_percent}_j = \frac{\text{SD}(\text{localImp}_j)}{\text{Mean}(|\text{localImp}_j|)}
+$$
+
+Where:
+- $\text{SD}(\text{localImp}_j)$ is the sample-wise standard deviation of variable $j$'s local importance values(for each row).
+- $\text{Mean}(|\text{localImp}_j|)$ is the average absolute importance of variable $j$ across all OOB samples.
+
+This normalized ratio allows us to understand **how consistently** a variable influences different observations.  
+- A **higher** `local_sd_percent` means the variable has **heterogeneous local effects**, impacting some observations strongly and others weakly.
+- A **lower** value suggests **uniform and stable importance** across samples.
+
+It complements `importanceSD` (tree-wise standard deviation), offering insight into **local vs. global variability** of predictor effects.
+
+```{r}
+sd_df <- data.frame(
+  Variable = names(impsd),
+  importanceSD = as.vector(impsd),
+  localSD_percent = local_sd_percent[names(impsd)]
+)
+
+sd_df$Variable <- factor(sd_df$Variable,
+                         levels = sd_df$Variable[order(sd_df$importanceSD, decreasing = TRUE)])
+
+sd_long <- pivot_longer(sd_df,
+                        cols = c("importanceSD", "localSD_percent"),
+                        names_to = "Type",
+                        values_to = "SD")
+
+library(ggplot2)
+ggplot(sd_long, aes(x = Variable, y = SD, fill = Type)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(
+    title = "Comparison of Tree-wise vs Relative Sample-wise Importance Variability",
+    x = "Variable",
+    y = "Standard Deviation (or Relative SD)",
+    fill = "Metric Type"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+From the above bar chart, we observe clear differences in importance variability across metrics:
+
+- Variables such as **`lstat`**, **`rm`**, and **`dis`** exhibit high values for both `importanceSD` and `localSD_percent`, suggesting that they are consistently influential across both trees and individual samples.
+- On the contrary, variables like **`crim`**, **`ptratio`**, and **`rad`** show low `importanceSD` but relatively high `localSD_percent`, indicating that while they may not appear globally important, they exert **strong influence in specific subsets of data** — a signature of localized or context-specific importance.
+- Interestingly, **`chas`** and **`zn`** present **negligible global importance** yet have **among the highest sample-wise variability**, implying they may be critical in rare or boundary cases, despite being globally inconsequential.
+- Features such as **`nox`**, **`tax`**, and **`age`** demonstrate moderate and consistent importance in both global and local contexts.
+
+While global metrics like `importanceSD` are essential for understanding **overall feature robustness**, they can overlook **individual-level predictive dynamics**. The `localSD_percent` serves as a complementary diagnostic, uncovering variables that contribute significantly to error reduction **in heterogeneous or edge-case samples**.
+
 
 
 ### Variable Importacne(Regression)

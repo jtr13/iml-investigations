@@ -129,12 +129,35 @@ That is, the **range of PDP values divided by 4**.
 In the example of Boston data
 
 ```{r}
+library(purrr)
+categorical_vars <- c("chas", "rad")
+
+compute_vi_continuous <- function(df) {
+  sd(df$yhat)
+}
+
+compute_vi_categorical <- function(df) {
+  summary_df <- df |>
+    group_by(value) |>
+    summarise(mean_yhat = mean(yhat), .groups = "drop")
+  (max(summary_df$mean_yhat) - min(summary_df$mean_yhat)) / 4
+}
+
 vi_pdp <- plot_data |>
-  group_by(Variable) |>
-  summarise(VI = sd(yhat)) |>
+  group_split(Variable) |>
+  map_df(function(df) {
+    varname <- unique(df$Variable)
+    if (varname %in% categorical_vars) {
+      vi <- compute_vi_categorical(df)
+    } else {
+      vi <- compute_vi_continuous(df)
+    }
+    tibble(Variable = varname, VI = vi)
+  }) |>
   arrange(desc(VI))
 
 print(vi_pdp)
+
 ```
 
 ```{r}
@@ -203,8 +226,16 @@ ggplot(plot_data_boost, aes(x = value, y = yhat)) +
 
 ```{r}
 vi_pdp_boost <- plot_data_boost |>
-  group_by(Variable) |>
-  summarise(VI = sd(yhat)) |>
+  group_split(Variable) |>
+  map_df(function(df) {
+    varname <- unique(df$Variable)
+    vi <- if (varname %in% categorical_vars) {
+      compute_vi_categorical(df)
+    } else {
+      compute_vi_continuous(df)
+    }
+    tibble(Variable = varname, VI = vi)
+  }) |>
   arrange(desc(VI))
 
 print(vi_pdp_boost)
