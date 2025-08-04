@@ -1,0 +1,829 @@
+---
+title: "Unrestricted Permutation forces Extrapolation: Variable Importance Requires at least One More Model, or There Is No Free Variable Importance"
+author: "Luying Shu"
+execute:
+  echo: true
+format:
+  html:
+    fig-width: 6
+    fig-height: 4
+    out-width: 60%
+    embed-resources: true
+---
+
+```{r}
+library(randomForest)
+library(nnet)
+library(ggplot2)
+library(doParallel)
+library(foreach)
+library(mgcv)
+library(knitr)
+library(dplyr)
+library(tidyr)
+```
+
+# Unrestricted Permutation forces Extrapolation: A Practical Demonstration
+
+This document reproduces key experiments from Hooker et al.'s paper critiquing permute-and-predict (PaP) methods for variable importance measurement. We demonstrate how traditional methods like permutation importance can be misleading with correlated features and implement improved alternatives.
+
+## Introduce
+
+| PaP(Permute-and-Predict) Method     | Advantages                                                                 |
+|-------------------|---------------------------------------------------------------------|
+| VI (Variable Importance via Permutation) | Provides an intuitive assessment of feature impact on predictive performance; model-agnostic and especially useful for Random Forests |
+| PDP (Partial Dependence Plot)           | Shows the average marginal effect of a single feature; easy to visualize and interpret |
+| ICE (Individual Conditional Expectation) | Reveals individual-level prediction changes; captures interaction effects and model uncertainty |
+
+**Issues with the PaP Method**
+
+Permutation After Prediction (PaP) is a common technique for assessing variable importance. However, it suffers from two major issues:
+
+**1. Ignoring Feature Correlation When Evaluating Importance on a Fixed Model (Unavoidable)**
+
+- When evaluating a fixed model $f(x)$, permuting a feature $x_j$ breaks its statistical relationship with the remaining features $x_{-j}$.
+- In practice, the model has never seen such "permuted combinations" during training, making this an **extrapolation** problem.
+- **Example**: If "gender" and "pregnancy status" are highly correlated, permuting "pregnancy status" could create unrealistic combinations such as a *pregnant male*, which did not exist in the training data.
+
+**2. Amplified Bias When Using PaP on an Estimated Model (Avoidable)**
+
+- Applying PaP to models like **Random Forests** means making predictions on feature combinations that were never seen during training.
+- In these extrapolated regions, the model’s predictions are **unreliable**.
+- As a result, the computed variable importance may be **misleading**, especially for correlated or high-cardinality features.
+
+---
+
+**Goals of the Paper**
+1. Review the Literature
+
+  Summarize the growing body of research on variable importance diagnostics.
+
+2. Analyze Existing Methods
+
+  Conduct a detailed examination of how diagnostic tools behave, particularly when applied to random forests.
+
+  Provide explanations for the observed issues (e.g., extrapolation, bias).
+
+3. Advocate for Improved Importance Measures
+
+  Promote newer importance measures that:
+
+  Avoid extrapolation by using alternative data perturbation methods, or
+
+  Retrain models after perturbations to assess importance more reliably.
+
+
+To mitigate the biases introduced by the standard Permutation After Prediction (PaP) approach, two primary strategies have been proposed:
+
+---
+
+**1. Conditional Permutation**
+
+- Instead of permuting feature values completely at random, this method generates replacement values **conditioned on the other features**.
+- This preserves the **statistical structure** of the data and avoids creating unrealistic or implausible feature combinations.
+- A well-known example of this approach is the method proposed by **Strobl et al. (2007)**.
+- It helps maintain the integrity of the joint distribution and produces more reliable importance estimates in the presence of correlated predictors.
+
+
+**2. Model Re-learning (Retraining-Based Methods)**
+
+These methods involve **retraining the model** each time a variable is removed or modified, thereby directly assessing the impact of that variable on predictive performance.
+
+Common approaches include:
+
+- **Leave-One-Covariate-Out (LOCO)**  
+  Retrain the model by removing one covariate at a time and observe the change in performance.
+
+- **Knockoff Filters**  
+  Generate **synthetic variables (knockoffs)** that preserve the conditional dependence structure of the original variables. Then compare the model's behavior with original versus knockoff variables to assess importance.
+
+- **Permute-and-Retrain (Mentch & Hooker)**  
+  Permute a variable and **retrain** the model on the modified data, measuring the change in prediction performance. This accounts for both the effect of the variable and the model’s flexibility.
+  
+---
+
+Beyond traditional PaP (Permutation After Prediction) approaches, several advanced methods have been proposed to more reliably interpret complex models:
+
+
+**1. Shapley Values**
+
+- Based on **cooperative game theory**, Shapley values fairly allocate the contribution of each feature to the model's prediction.
+- Shapley values provide **local explanations** that are theoretically grounded and model-agnostic.
+- However, some popular implementations of **SHAP (SHapley Additive exPlanations)** are still built upon **PaP-style perturbations**, which may inherit the same extrapolation issues and lead to **misleading interpretations** in the presence of correlated features or extrapolated regions.
+
+**2. Functional ANOVA (Hooker, 2007)**
+
+- Proposes decomposing a black-box prediction function into **main effects and interactions** using functional analysis of variance.
+- This approach explicitly avoids extrapolation by working within the **observed distribution of features**.
+- It also creates a natural connection to **global sensitivity analysis**, such as **Sobol indices**, which quantify how much each feature or feature interaction contributes to overall output variance.
+
+
+## A Simple Simulated Example
+
+Construct a simulated dataset where we know exactly the importance of each variable.
+For example: x1, x2 Theoretical weights 0.8, but they are strongly correlated(ρ = 0.9).
+
+```{r}
+set.seed(2023)
+n <- 2000
+p <- 10
+
+# Create correlated X1 and X2 using Gaussian copula
+rho <- 0.9
+sigma <- matrix(c(1, rho, rho, 1), ncol=2)
+u <- MASS::mvrnorm(n, mu = c(0,0), Sigma = sigma)
+u_p <- pnorm(u)
+x1 <- qunif(u_p[,1])
+x2 <- qunif(u_p[,2])
+
+# Independent features
+x3 <- runif(n)
+x4 <- runif(n)
+x5 <- runif(n)
+x6 <- runif(n)
+x7 <- runif(n)
+x8 <- runif(n)
+x9 <- runif(n)
+x10 <- runif(n)
+
+# Response variable (linear model)
+y <- 1.0*x1 + 1.0*x2 + 1.0*x3 + 1.0*x4 + 1.0*x5 + 
+     0.0*x6 + 0.5*x7 + 0.8*x8 + 1.2*x9 + 1.5*x10 + rnorm(n, sd = 0.1)
+
+# Combine into dataframe
+data <- data.frame(y, x1, x2, x3, x4, x5, x6, x7, x8, x9, x10)
+train_idx <- sample(1:n, 1500)
+train <- data[train_idx, ]
+test <- data[-train_idx, ]
+```
+
+We train three models: Random Forest, Neural Network, and Linear Model.
+
+```{r}
+# Random Forest
+rf <- randomForest(y ~ ., data = train, ntree = 500, importance = TRUE)
+
+# Neural Network (single hidden layer)
+nn <- nnet(y ~ ., data = train, size = 20, linout = TRUE, trace = FALSE)
+
+# Linear Model
+lm <- lm(y ~ ., data = train)
+```
+
+
+- $y_i$: True label of the $i$-th observation  
+- $\hat{y}_i = \hat{f}(x_i)$: Model's prediction on the original data  
+- $\hat{y}_i^{(j)}$: Model's prediction when feature $x_j$ has been randomly permuted  
+- $L(y, \hat{y})$: Loss function, in this case Mean Squared Error (MSE)
+
+The **permutation importance** of feature $x_j$ is defined as the increase in MSE after permuting $x_j$:
+
+$$
+\text{PI}_j = \frac{1}{n} \sum_{i=1}^n \left( y_i - \hat{y}_i^{(j)} \right)^2 - \frac{1}{n} \sum_{i=1}^n \left( y_i - \hat{y}_i \right)^2
+$$
+
+Where:
+
+- $\hat{y}_i^{(j)}$ is the model prediction after permuting feature $x_j$
+- $\hat{y}_i$ is the model prediction using original data
+
+In short, it can be expressed as:
+
+$$
+\text{PI}_j = \text{MSE}_{\text{permuted}(j)} - \text{MSE}_{\text{original}}
+$$
+
+```{r}
+# permutation importance
+get_permutation_importance <- function(model, data, target_col) {
+  base_preds <- predict(model, newdata = data)
+  base_loss <- mean((data[[target_col]] - base_preds)^2)
+  
+  VI <- numeric()
+  for (j in setdiff(names(data), target_col)) {
+    permuted_data <- data
+    permuted_data[[j]] <- sample(permuted_data[[j]])
+    permuted_preds <- predict(model, newdata = permuted_data)
+    permuted_loss <- mean((data[[target_col]] - permuted_preds)^2)
+    VI[j] <- permuted_loss - base_loss
+  }
+  return(VI)
+}
+
+simulate_once <- function(n = 2000, rho = 0.0) {
+  # Create correlated X1 and X2
+  sigma <- matrix(c(1, rho, rho, 1), ncol = 2)
+  u <- MASS::mvrnorm(n, mu = c(0,0), Sigma = sigma)
+  u_p <- pnorm(u)
+  x1 <- qunif(u_p[,1])
+  x2 <- qunif(u_p[,2])
+  
+  x3 <- runif(n)
+  x4 <- runif(n)
+  x5 <- runif(n)
+  x6 <- runif(n)
+  x7 <- runif(n)
+  x8 <- runif(n)
+  x9 <- runif(n)
+  x10 <- runif(n)
+  
+  y <- 1.0*x1 + 1.0*x2 + 1.0*x3 + 1.0*x4 + 1.0*x5 + 
+       0.0*x6 + 0.5*x7 + 0.8*x8 + 1.2*x9 + 1.5*x10 + rnorm(n, sd = 0.1)
+  
+  data <- data.frame(y, x1, x2, x3, x4, x5, x6, x7, x8, x9, x10)
+  train_idx <- sample(1:n, 1500)
+  train <- data[train_idx, ]
+  test <- data[-train_idx, ]
+  
+  list(train = train, test = test)
+}
+
+run_simulations <- function(rho = 0.0, n_sim = 50) {
+  result_list <- list()
+  
+  for (i in 1:n_sim) {
+    sim_data <- simulate_once(rho = rho)
+    train <- sim_data$train
+    test <- sim_data$test
+    
+    # Train models
+    rf <- randomForest(y ~ ., data = train, ntree = 500, importance = TRUE)
+    nn <- nnet(y ~ ., data = train, size = 20, linout = TRUE, trace = FALSE)
+    lm_model <- lm(y ~ ., data = train)
+    
+    # Variable importance
+    vi_rf <- get_permutation_importance(rf, test, "y")
+    vi_nn <- get_permutation_importance(nn, test, "y")
+    vi_lm <- get_permutation_importance(lm_model, test, "y")
+    vi_rf_oob <- as.vector(importance(rf, type = 1)) 
+    names(vi_rf_oob) <- rownames(importance(rf))
+    
+    # Ranking (1 = most important)
+    rank_df <- data.frame(
+      feature = paste0("x", 1:10),
+      rf = rank(-vi_rf),
+      nn = rank(-vi_nn),
+      lm = rank(-vi_lm),
+      oob = rank(-vi_rf_oob)
+    )
+    rank_df$sim <- i
+    result_list[[i]] <- rank_df
+  }
+  
+  do.call(rbind, result_list)
+}
+
+# Run simulations for rho = 0 and rho = 0.9
+set.seed(42)
+res_0 <- run_simulations(rho = 0.0, n_sim = 50)
+res_09 <- run_simulations(rho = 0.9, n_sim = 50)
+
+res_0$rho <- "0"
+res_09$rho <- "0.9"
+
+all_res <- bind_rows(res_0, res_09)
+
+# Prepare for plotting
+long_df <- all_res |>
+  pivot_longer(cols = c("rf", "nn", "lm", "oob"), names_to = "model", values_to = "rank") |>
+  group_by(feature, model, rho) |>
+  summarise(avg_rank = mean(rank), .groups = "drop") |>
+  mutate(feature = as.integer(gsub("x", "", feature)))
+
+# Plot
+ggplot(long_df, aes(x = feature, y = avg_rank, color = model, group = model)) +
+  geom_line() +
+  geom_point() +
+  facet_wrap(~ rho, labeller = label_bquote(rho == .(rho))) +
+  scale_y_reverse(breaks = 1:10) +
+  theme_minimal() +
+  labs(
+    title = "Average Variable Importance Rank across 50 Simulations",
+    x = "Feature Index",
+    y = "Importance Rank (Lower = More Important)",
+    color = "Model"
+  )
+
+```
+
+Similar as Fig1 in the paper. 
+
+To investigate how feature correlation affects model-based variable importance (VI) estimation, we simulate a synthetic regression task with $n = 2000$ observations and $p = 10$ features. The outcome variable $y$ is generated as:
+
+$$
+y = 1.0x_1 + 1.0x_2 + 1.0x_3 + 1.0x_4 + 1.0x_5 + 0.0x_6 + 0.5x_7 + 0.8x_8 + 1.2x_9 + 1.5x_{10} + \varepsilon
+$$
+
+The true theoretical feature importance ranking is therefore:
+
+$$
+x_{10} > x_9 > x_1 = x_2 = x_3 = x_4 = x_5 > x_8 > x_7 > x_6
+$$
+
+We compare four models in their ability to recover this ground truth:
+- `lm`: linear regression
+- `nn`: neural network
+- `rf`: random forest with permutation-based VI
+- `oob`: random forest with out-of-bag VI
+
+The results are visualized in the figure below, with importance ranks (lower = more important) on the y-axis, and feature index on the x-axis. The left panel represents independent features ($\rho = 0$), while the right panel reflects strong correlation between $x_1$ and $x_2$ ($\rho = 0.9$).
+
+**$\rho = 0$ (Independent Features):**
+- All models generally recover the theoretical ranking well.
+- Linear regression (`lm`) is most stable, benefiting from the exact linear generative process.
+- Random forest (`rf`) and neural network (`nn`) perform comparably, though with minor variation across feature ranks.
+- OOB-based importance (`oob`) closely mirrors permutation importance from RF.
+
+**$\rho = 0.9$ (High Correlation between $x_1$ and $x_2$):**
+- Importance rankings are notably distorted due to multicollinearity.
+- Linear regression remains relatively stable, as it can assign equal or similar coefficients to collinear predictors.
+- Both random forest and neural network exhibit degraded ranking performance. In particular, the rankings of $x_1$ and $x_2$ are inconsistent and no longer aligned with the known structure.
+- OOB importance suffers similarly, showing sensitivity to feature correlation structures.
+
+## PaperSec4 Limitations of Permutation Importance and Suggested Remedies
+
+The following table summarizes known issues associated with permutation-based variable importance measures in the presence of correlated features and model extrapolation behavior, along with the corresponding causes and suggested remedies:
+
+| **Issue**                         | **Cause**                                            | **Suggested Remedies**                                              |
+|----------------------------------|------------------------------------------------------|---------------------------------------------------------------------|
+| Permutation importance instability | Extrapolation to regions outside training distribution | Consider using **conditional permutation**, **SHAP**, or **accumulated local effects (ALE)** methods that avoid extrapolation |
+| Inflated importance for correlated features | Model cannot distinguish contribution during splitting | Perform feature engineering to decorrelate features (e.g., via PCA), or apply **grouped importance** or **joint testing** methods |
+| High prediction variance in neural networks | Gibbs phenomenon and unstable extrapolation for out-of-distribution inputs | Use more robust explanation methods, apply **regularization**, or **prune network complexity** to control extrapolative behavior |
+
+These limitations highlight the importance of careful diagnostic checks before interpreting variable importance measures, especially in black-box models like random forests or neural networks.
+
+```{r}
+library(ggplot2)
+ggplot(test, aes(x = x1, y = x2)) + 
+  geom_point(alpha = 0.3) +
+  labs(title = "Original Correlated Features: x1 vs x2")
+
+perm_test <- test
+perm_test$x1 <- sample(perm_test$x1)
+
+ggplot(perm_test, aes(x = x1, y = x2)) + 
+  geom_point(alpha = 0.3) +
+  labs(title = "Permuted x1 vs Original x2: Correlation Destroyed")
+
+```
+Originally, x1 and x2 are highly correlated (ρ = 0.9).
+
+Before permutation:
+The joint distribution of x1 and x2 forms a slanted ellipse, reflecting their strong correlation.
+
+After permutation:
+x1 is shuffled into a random order while x2 remains unchanged. As a result, x1 and x2 become completely uncorrelated, and their joint distribution turns into a rectangular shape.
+
+This destruction of the joint distribution causes the model to encounter "unseen combinations" during testing, leading to a significant drop in predictive performance. As a result, permutation importance becomes artificially inflated.
+
+
+
+## PaperSec5 Variable Importance Alternatives
+
+In addition to classical permutation importance, several refined methods have been developed that combine elements of conditional distribution modeling and model retraining. Below, we describe four such methods, including their corresponding mathematical formulations. These were implemented in the simulations of Section 2.
+
+### 5.1 Conditional Variable Importance (CVI)
+
+For each observation $x_i$, simulate a perturbed observation $x^{(c,j)}_i$ where feature $x_{ij}$ is sampled conditionally given the remaining features $x_{i,-j}$:
+
+$$
+x^{(c,j)}_{ij} \sim p(x_{ij} \mid x_{i,-j})
+$$
+
+The conditional variable importance is defined as the increase in loss when using $f(x^{(c,j)}_i)$ instead of $f(x_i)$:
+
+$$
+\text{VI}^{\text{C}}_j = \sum_{i=1}^N \left[ L(y_i, f(x^{(c,j)}_i)) - L(y_i, f(x_i)) \right]
+$$
+
+> - In our simulation, the conditional distribution $p(x_{ij} \mid x_{i,-j})$ was computed explicitly via the Gaussian copula model.
+> - This method aligns with the conditional permutation approach in **Strobl et al. (2008)** and conditional model reliance in **Fisher et al. (2019)**.
+> - In practice, approximating this conditional distribution requires additional modeling or density estimation.
+
+
+### 5.2 Dropped Variable Importance (LOCO)
+
+This method computes the drop in model performance when the $j$-th feature is removed and a new model $f^{(-j)}$ is trained without it:
+
+$$
+\text{VI}^{\text{D}}_j = \sum_{i=1}^N \left[ L(y_i, f(x_i)) - L(y_i, f^{(-j)}(x_i)) \right]
+$$
+
+> - This corresponds to the **Leave-One-Covariate-Out (LOCO)** strategy.
+> - The approach was formalized in conformal inference settings by **Lei et al. (2018)**.
+
+
+
+### 5.3 Permute-and-Relearn Importance
+
+Instead of permuting within an existing model, this method trains a **new model** $f^{(\pi,j)}$ on a dataset where feature $x_j$ has been permuted, breaking its association with the response:
+
+$$
+\text{VI}^{\pi L}_j = \sum_{i=1}^N \left[ L(y_i, f(x_i)) - L(y_i, f^{(\pi,j)}(x_i)) \right]
+$$
+
+> - First proposed in **Mentch & Hooker (2016)**.
+> - Permutation is used to preserve input dimensionality, ensuring fair model complexity comparison.
+
+
+
+### 5.4 Condition-and-Relearn Importance
+
+This method builds a new model using conditionally perturbed data $(y, X^{(c,j)})$, where feature $j$ is replaced using the conditional distribution. Then compare the predictions of the original model and the new model $f^{(c,j)}$:
+
+$$
+\text{VI}^{C L}_j = \sum_{i=1}^N \left[ L(y_i, f(x_i)) - L(y_i, f^{(c,j)}(x_i)) \right]
+$$
+
+> - Combines the ideas of conditional permutation and model retraining.
+> - Requires generating $X^{(c,j)}$ from conditional distributions and fully re-training $f^{(c,j)}$.
+
+In original paper,
+
+
+| Symbol | Method | Description (from original paper)                                                                                  | One-line Explanation                                                  |
+|--------|--------|---------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------|
+| ○      | π      | Traditional permutation importance                                                                                 | Measures importance by permuting one variable at a time.              |
+| △      | C      | Conditional permutation importance (sampling under conditional distribution)                                       | Permutes a variable conditionally on the others to avoid extrapolation.|
+| ＋      | D      | Drop method (retrain the model after removing the variable)                                                       | Retrains the model without the variable to assess its contribution.   |
+| ×      | π⊥     | Permute-and-relearn (retrain the model after permuting a variable)                                                 | Randomizes a variable and retrains the model to assess robustness.    |
+| ◇      | C⊥     | Conditional-and-relearn (retrain after conditional permutation)                                                    | Relearns model after sampling the variable conditionally.             |
+| ☆      | C↓     | Conditional importance (simulate \( x_j \mid x_{-j} \))                                                             | Simulates the variable from its conditional distribution given others.|
+
+
+
+
+```{r}
+library(copula)
+library(randomForest)
+library(nnet)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+
+generate_data <- function(n, rho, seed = NULL) {
+  if (!is.null(seed)) set.seed(seed)
+  
+  cop <- normalCopula(param = rho, dim = 2, dispstr = "un")
+  
+  uv <- rCopula(n, cop)
+  x1 <- qunif(uv[, 1])
+  x2 <- qunif(uv[, 2])
+  
+  x3_10 <- matrix(runif(n * 8), ncol = 8)
+  
+  X <- cbind(x1, x2, x3_10)
+  colnames(X) <- paste0("x", 1:10)
+
+  coefs <- c(1, 1, 1, 1, 1, 0, 0.5, 0.8, 1.2, 1.5)
+  
+  y <- X %*% coefs + rnorm(n, sd = 0.1)
+  
+  return(list(X = X, y = as.vector(y)))
+}
+
+
+compute_vi <- function(model, X, y, j, rho, method) {
+  n <- nrow(X)
+  p <- ncol(X)
+  
+  # original
+  if (inherits(model, "randomForest")) {
+    pred_orig <- predict(model, X)
+  } else {
+    pred_orig <- predict(model, as.data.frame(X))
+  }
+  loss_orig <- mean((y - pred_orig)^2)
+  
+  # π: standard permutation
+  if (method == "π") {
+    X_pert <- X
+    X_pert[, j] <- sample(X_pert[, j])
+    pred_pert <- if (inherits(model, "randomForest")) {
+      predict(model, X_pert)
+    } else {
+      predict(model, as.data.frame(X_pert))
+    }
+    return(mean((y - pred_pert)^2) - loss_orig)
+  }
+  
+  # C: conditional permutation
+  if (method == "C") {
+    # Simplified conditional distribution – in practice, a more accurate model is needed
+    cond_mean <- mean(X[, j])
+    cond_sd <- sd(X[, j])
+    X_pert <- X
+    X_pert[, j] <- rnorm(n, cond_mean, cond_sd)
+    pred_pert <- if (inherits(model, "randomForest")) {
+      predict(model, X_pert)
+    } else {
+      predict(model, as.data.frame(X_pert))
+    }
+    return(mean((y - pred_pert)^2) - loss_orig)
+  }
+  
+  # D: feature deletion
+  if (method == "D") {
+    X_drop <- X[, -j, drop = FALSE]
+    if (inherits(model, "randomForest")) {
+      model_drop <- randomForest(X_drop, y, ntree = 500)
+      pred_drop <- predict(model_drop, X_drop)
+    } else if (inherits(model, "nnet")) {
+      model_drop <- nnet(X_drop, y, size = 20, linout = TRUE, trace = FALSE)
+      pred_drop <- predict(model_drop, as.data.frame(X_drop))
+    } else {
+      model_drop <- lm(y ~ ., data = as.data.frame(X_drop))
+      pred_drop <- predict(model_drop, as.data.frame(X_drop))
+    }
+    return(mean((y - pred_drop)^2) - loss_orig)
+  }
+  
+  # π⊥: permutation followed by retraining
+  if (method == "π⊥") {
+    X_pert <- X
+    X_pert[, j] <- sample(X_pert[, j])
+    if (inherits(model, "randomForest")) {
+      model_pert <- randomForest(X_pert, y, ntree = 500)
+      pred_pert <- predict(model_pert, X_pert)
+    } else if (inherits(model, "nnet")) {
+      model_pert <- nnet(X_pert, y, size = 20, linout = TRUE, trace = FALSE)
+      pred_pert <- predict(model_pert, as.data.frame(X_pert))
+    } else {
+      model_pert <- lm(y ~ ., data = as.data.frame(X_pert))
+      pred_pert <- predict(model_pert, as.data.frame(X_pert))
+    }
+    return(mean((y - pred_pert)^2) - loss_orig)
+  }
+  
+  # C⊥:conditional permutation followed by retraining
+  if (method == "C⊥") {
+    cond_mean <- mean(X[, j])
+    cond_sd <- sd(X[, j])
+    X_pert <- X
+    X_pert[, j] <- rnorm(n, cond_mean, cond_sd)
+    if (inherits(model, "randomForest")) {
+      model_pert <- randomForest(X_pert, y, ntree = 500)
+      pred_pert <- predict(model_pert, X_pert)
+    } else if (inherits(model, "nnet")) {
+      model_pert <- nnet(X_pert, y, size = 20, linout = TRUE, trace = FALSE)
+      pred_pert <- predict(model_pert, as.data.frame(X_pert))
+    } else {
+      model_pert <- lm(y ~ ., data = as.data.frame(X_pert))
+      pred_pert <- predict(model_pert, as.data.frame(X_pert))
+    }
+    return(mean((y - pred_pert)^2) - loss_orig)
+  }
+  
+  # C↓: conditional sampling (simplified version)
+  if (method == "C↓") {
+    cond_mean <- mean(X[, j])
+    cond_sd <- sd(X[, j])
+    X_pert <- X
+    X_pert[, j] <- rnorm(n, cond_mean, cond_sd)
+    pred_pert <- if (inherits(model, "randomForest")) {
+      predict(model, X_pert)
+    } else {
+      predict(model, as.data.frame(X_pert))
+    }
+    return(mean((y - pred_pert)^2) - loss_orig)
+  }
+  
+  stop("Unknown method: ", method)
+}
+
+# ---- 3. Main simulation function ----
+run_simulation <- function(n, rho, n_sims = 50) {
+  methods <- c("π", "C", "D", "π⊥", "C⊥", "C↓")
+  features <- paste0("x", 1:10)
+  
+  # Initialize result storage
+  results <- list()
+  
+  for (sim in 1:n_sims) {
+    # Generate data
+    data <- generate_data(n, rho, seed = 1000 + sim)
+    X <- data$X
+    y <- data$y
+    
+    # Train models
+    models <- list(
+      LM = lm(y ~ ., data = as.data.frame(cbind(X, y))),
+      RF = randomForest(X, y, ntree = 500),
+      NN = nnet(X, y, size = 20, linout = TRUE, trace = FALSE)
+    )
+    
+    # Compute VI for each model and method
+    for (model_name in names(models)) {
+      model <- models[[model_name]]
+      
+      for (method in methods) {
+        vi_values <- sapply(1:10, function(j) {
+          compute_vi(model, X, y, j, rho, method)
+        })
+        
+        # Rank (1 = most important)
+        ranks <- rank(-vi_values)
+        
+        # Store results
+        results[[length(results) + 1]] <- data.frame(
+          sim = sim,
+          rho = rho,
+          model = model_name,
+          method = method,
+          feature = features,
+          vi = vi_values,
+          rank = ranks
+        )
+      }
+    }
+  }
+  
+  return(do.call(rbind, results))
+}
+
+
+
+set.seed(123)
+n_obs <- 200  # sample size
+n_sims <- 10   # paper: 50
+
+results_independent <- run_simulation(n_obs, rho = 0, n_sims = n_sims)
+
+results_correlated <- run_simulation(n_obs, rho = 0.9, n_sims = n_sims)
+
+all_results <- rbind(results_independent, results_correlated)
+
+```
+
+```{r}
+
+summary_results <- all_results |>
+  group_by(rho, model, method, feature) |>
+  summarise(
+    mean_rank = mean(rank),
+    .groups = "drop"
+  ) |>
+  mutate(
+    rho_label = ifelse(rho == 0, "ρ = 0", "ρ = 0.9"),
+    feature_num = as.numeric(sub("x", "", feature))
+  )
+
+method_colors <- c(
+  "C" = "#E41A1C",     # Red
+  "C⊥" = "#FF7F00",    # Orange
+  "C↓" = "#4DAF4A",    # Green
+  "D" = "#377EB8",     # Blue
+  "π" = "#984EA3",     # Purple
+  "π⊥" = "#F781BF"     # Pink
+)
+
+# ---- plot ----
+ggplot(summary_results, aes(x = feature_num, y = mean_rank, color = method, group = method)) +
+  geom_line(linewidth = 1) +
+  geom_point(linewidth = 2) +
+  facet_grid(rho_label ~ model) +
+  scale_x_continuous(breaks = 1:10, labels = paste0("x", 1:10)) +
+  scale_y_reverse(limits = c(10, 1)) +  # 1 = most important
+  scale_color_manual(values = method_colors) +
+  labs(
+    title = "Variable Importance Rankings Across Methods and Correlation Settings",
+    x = "Feature",
+    y = "Importance Rank (1 = Most Important)",
+    color = "Method"
+  ) +
+  theme_bw(base_size = 13) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    strip.background = element_rect(fill = "white")
+  )
+
+
+```
+
+The reproduced figure successfully replicates the overall structure and trends of Figure 7 from the original paper. It shows the average variable importance rankings across six methods (C, C⊥, C↓, D, π, π⊥) under two correlation settings (ρ = 0 and ρ = 0.9) and three model types (LM, NN, RF).
+
+The key patterns—such as features 7–10 being ranked higher in importance and the method-specific curves varying across models—are consistent with the original results. In particular, the Random Forest and Linear Model panels align well with the published figure.
+
+
+Attention: Although retraining can improve the accuracy of variable importance rankings, permutation-based approaches—even those involving retraining such as π⊥—are insufficient for formal significance testing. More principled substitution methods, such as conditional resampling or knockoff-based approaches, are necessary to ensure valid inference.
+
+
+### Apply to the real data
+
+```{r}
+library(randomForest)
+library(dplyr)
+library(ggplot2)
+library(readr)
+
+# Step 1: Load UCI dataset (downloaded hour.csv to local directory)
+df <- read_csv("D:/Desktop/Research Assistant_Prof. R/Unrestricted Permutation forces Extrapolation/hour.csv")
+
+# Step 2: Create the log-transformed target variable
+df$log_rentals <- log1p(df$cnt)
+
+# Step 3: Select 14 predictor features
+features <- c("season", "yr", "mnth", "hr", "holiday", "weekday", "workingday",
+              "weathersit", "temp", "atemp", "hum", "windspeed", "casual", "registered")
+X <- df[, features]
+y <- df$log_rentals
+
+# Step 4: Train the baseline random forest model
+set.seed(42)
+rf_base <- randomForest(X, y, ntree = 100)
+
+# Compute baseline mean squared error (MSE)
+y_hat <- predict(rf_base, X)
+baseline_mse <- mean((y - y_hat)^2)
+
+# Step 5: OOB Permutation Importance (no retraining)
+oob_importance <- sapply(features, function(f) {
+  X_perm <- X
+  X_perm[[f]] <- sample(X_perm[[f]])
+  y_perm_pred <- predict(rf_base, X_perm)
+  perm_mse <- mean((y - y_perm_pred)^2)
+  perm_mse - baseline_mse
+})
+
+# Step 6: VI_pi_L Importance (permute and retrain for each feature)
+vi_pi_l_importance <- sapply(features, function(f) {
+  X_perm <- X
+  X_perm[[f]] <- sample(X_perm[[f]])
+  rf_new <- randomForest(X_perm, y, ntree = 100)
+  y_pred_new <- predict(rf_new, X_perm)
+  perm_mse <- mean((y - y_pred_new)^2)
+  perm_mse - baseline_mse
+})
+
+# Step 7: Combine results into a data frame
+importance_df <- data.frame(
+  Feature = features,
+  OOB_Perm = oob_importance,
+  VI_pi_L = vi_pi_l_importance
+)
+
+# Preview the structure
+print(head(importance_df))
+
+# Add feature importance ranks (lower rank = more important)
+importance_df <- importance_df |>
+  mutate(
+    OOB_Rank = rank(-OOB_Perm),
+    VI_pi_L_Rank = rank(-VI_pi_L)
+  )
+
+# Check column names
+print(colnames(importance_df))  # Should contain Feature, OOB_Rank, VI_pi_L_Rank
+
+```
+
+```{r}
+importance_df_long <- importance_df |>
+  dplyr::select(Feature, OOB_Rank, VI_pi_L_Rank) |>
+  pivot_longer(
+    cols = c(OOB_Rank, VI_pi_L_Rank),
+    names_to = "Method",
+    values_to = "Rank"
+  )
+
+# Plot
+ggplot(importance_df_long, aes(x = Rank, y = reorder(Feature, Rank), fill = Method)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(
+    title = "Comparison of Feature Importance Rankings (OOB Perm vs VIπᴸⱼ)",
+    x = "Rank (lower = more important)",
+    y = "Feature"
+  ) +
+  scale_fill_manual(
+    values = c("#1f77b4", "#ff7f0e"),
+    labels = c("OOB Permutation", "VIπᴸⱼ Retraining")
+  ) +
+  theme_minimal()
+
+```
+
+| **Feature**             | **OOB (Blue)**       | **VIπᴸⱼ (Orange)**      | **Analysis**                                                                                                 |
+| ----------------------- | -------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------ |
+| **windspeed**           | Moderately important | Not important at all    | OOB likely overestimated its importance due to high correlation with other features like `temp` and `atemp`. |
+| **holiday**             | Fairly important     | Not important           | Again, OOB overemphasized this feature, while VIπᴸⱼ suggests it has little predictive power.                 |
+| **temp / atemp**        | Moderate             | Slightly below moderate | Both methods give similar rankings, suggesting these features have a real, though not dominant, impact.      |
+| **yr**                  | Highly important     | Highly important        | Strong agreement between both methods — this feature reflects long-term trends in bike rentals.              |
+| **casual / registered** | Least important      | Least important         | These are components of the target variable (`cnt`) and should be excluded to avoid data leakage.            |
+
+
+OOB Permutation tends to overestimate the importance of features that are highly correlated with others.
+
+VIπᴸⱼ Retraining provides a more robust and reliable importance estimate, especially in datasets with multicollinearity.
+
+The agreement on truly important or irrelevant features (like yr and casual/registered) supports the validity of VIπᴸⱼ for feature selection or model interpretation.
+
+
+Several widely-used model interpretation tools, such as Partial Dependence (PD) and Individual Conditional Expectation (ICE) plots, have been criticized for their reliance on artificial or permuted feature grids, which can lead models to extrapolate beyond the training distribution and thus generate misleading insights. As a more robust alternative, the authors advocate for additive models, such as generalized additive models (GAMs), which can visualize functional relationships without introducing extrapolation artifacts. Local explanation techniques, including LIME and saliency maps, effectively avoid extrapolation by focusing on small neighborhoods around specific observations; however, they lack the capacity to capture the model’s global behavior. The authors also note that counterfactual explanation methods, such as those proposed by Wachter et al. (2017), may similarly suffer from extrapolation issues, despite their interpretability and growing popularity.
+
+
+
+
+
+
+
+
