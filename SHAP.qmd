@@ -1,0 +1,490 @@
+---
+title: "SHAP"
+author: "Luying Shu"
+execute:
+  echo: true
+format:
+  html:
+    fig-width: 6
+    fig-height: 4
+    out-width: 60%
+    embed-resources: true
+---
+
+rpackage fastshap
+https://github.com/bgreenwell/fastshap
+
+```{r}
+library("fastshap")
+library(gower)
+library(cluster)
+library(tidyverse)
+library(randomForest)
+```
+
+```{r}
+set.seed(5293)
+mushrooms <- read.csv("D:/Desktop/interpretable ml/Pset1/mushrooms.csv", stringsAsFactors = TRUE)
+head(mushrooms)
+n <- nrow(mushrooms)
+test_index <- sample(n, 1)
+train_dat <- mushrooms[-test_index, ]
+test_dat <- mushrooms[test_index, ]
+library(lime)
+mod <- randomForest(type ~ ., data = mushrooms)
+mod
+predict(mod, newdata=  test_dat)
+pred = function(model, newdata){
+  predict(model, newdata = newdata, type = "prob")[,'poisonous']
+}
+
+shap_values = fastshap::explain(
+  mod,
+  X = train_dat,
+  feature_names = colnames(train_dat)[2:23],
+  pred_wrapper = pred,
+  nsim = 500,
+  newdata = test_dat,
+  adjust = TRUE
+)
+```
+
+
+```{r}
+library(tidyverse)
+
+df = shap_values|>
+  data.frame()|>
+  pivot_longer(cols = everything(),
+               names_to = "variable")|>
+  mutate(value = abs(value))|>
+  group_by(variable)|>
+  summarize(mean = mean(value))|>
+  arrange(desc(mean))
+
+df
+```
+
+```{r}
+ggplot(df, aes(x = reorder(variable, mean), y = mean)) +
+  geom_col(fill = "#3B82F6") +
+  coord_flip() +
+  labs(
+    x = NULL,
+    y = "Mean(|SHAP value|)",
+    title = "Feature Importance based on SHAP values")
+
+```
+
+
+```{r}
+# Minimal runnable SHAP computation function (single sample)
+# model: trained model
+# X: training data (excluding the target variable)
+# x: single sample to explain (data frame with same column names as X)
+# pred_fun: a function that takes (model, newdata) and returns predicted values (numeric vector)
+# nsim: number of sampling iterations
+
+simple_shap <- function(model, X, x, pred_fun, nsim = 50) {
+  p <- ncol(X)
+  shap_values <- numeric(p)
+  names(shap_values) <- colnames(X)
+  
+  for (sim in 1:nsim) {
+    perm <- sample(p)  # random feature order
+    S <- c()           # set of features already included
+    
+    for (j in perm) {
+      # Construct cases S and S ∪ {j}
+      X_S <- X
+      X_Sj <- X
+      
+      # For features outside S, replace with the value from sample x (simulate known/unknown features)
+      for (col in setdiff(1:p, S)) {
+        X_S[, col] <- x[[col]]
+      }
+      for (col in setdiff(1:p, c(S, j))) {
+        X_Sj[, col] <- x[[col]]
+      }
+      
+      # Prediction
+      pred_S  <- mean(pred_fun(model, X_S))
+      pred_Sj <- mean(pred_fun(model, X_Sj))
+      
+      shap_values[j] <- shap_values[j] + (pred_Sj - pred_S)
+      S <- c(S, j)
+    }
+  }
+  
+  shap_values / nsim
+}
+
+
+```
+
+```{r}
+pred_fun <- function(model, newdata) {
+  predict(model, newdata, type = "prob")[, "poisonous"]
+}
+
+# use simple_shap to calculate SHAP
+my_shap_values <- simple_shap(
+  model = mod,
+  X = train_dat[ , -1],  
+  x = test_dat[ , -1],
+  pred_fun = pred_fun,
+  nsim = 10
+)
+
+df_my <- my_shap_values |>
+  t() |>
+  data.frame() |>
+  pivot_longer(cols = everything(),
+               names_to = "variable") |>
+  mutate(value = abs(value)) |>
+  group_by(variable) |>
+  summarize(mean = mean(value)) |>
+  arrange(desc(mean))
+
+# fastshap result
+df_fast <- shap_values |>
+  data.frame() |>
+  pivot_longer(cols = everything(),
+               names_to = "variable") |>
+  mutate(value = abs(value)) |>
+  group_by(variable) |>
+  summarize(mean = mean(value)) |>
+  arrange(desc(mean))
+
+comparison <- left_join(df_fast, df_my, by = "variable", suffix = c("_fastshap", "_simple"))
+print(comparison)
+```
+
+
+
+```{r}
+# Minimal MC-SHAP aligned with fastshap semantics (multi-row x)
+# model: trained model
+# X: background data (features only; data.frame or matrix)
+# x: observations to explain (same columns as X; can have multiple rows)
+# pred_fun(model, newdata) -> numeric vector (prob or reg)
+# nsim: Monte Carlo repetitions
+# adjust: enforce local accuracy sum(phi) == f(x) - baseline (approx.)
+# baseline: NULL -> mean(pred(X)); numeric -> use it
+
+simple_shap <- function(model, X, x, pred_fun, nsim = 50,
+                        adjust = TRUE, baseline = NULL) {
+  stopifnot(is.data.frame(X) || is.matrix(X))
+  stopifnot(is.data.frame(x) || is.matrix(x))
+  if (!identical(colnames(X), colnames(x))) {
+    stop("Columns of `x` must match `X` (same names and order).")
+  }
+
+  X <- if (inherits(X, "tbl_df")) as.data.frame(X) else X
+  x <- if (inherits(x, "tbl_df")) as.data.frame(x) else x
+
+  n_bg <- nrow(X)
+  p    <- ncol(X)
+  m    <- nrow(x)
+  cols <- colnames(X)
+
+  # baseline and f(x)
+  fnull <- if (is.null(baseline)) mean(pred_fun(model, X)) else baseline
+  fx    <- as.numeric(pred_fun(model, x))  # length m
+
+  # result matrix: m rows (obs), p cols (features)
+  phis  <- matrix(0, nrow = m, ncol = p, dimnames = list(NULL, cols))
+
+  for (i in seq_len(m)) {
+    xi <- x[i, , drop = FALSE]
+
+    # accumulate over nsim permutations
+    phi_i <- numeric(p)
+
+    for (sim in seq_len(nsim)) {
+      perm <- sample.int(p)   # random feature order
+      Sidx <- integer(0)
+
+      # bootstrap background W (with replacement)
+      idx <- sample.int(n_bg, n_bg, replace = TRUE)
+      W   <- X[idx, , drop = FALSE]
+
+      for (j in perm) {
+        # World S: known features S take value x_i; others from W
+        B_S  <- W
+        if (length(Sidx)) {
+          for (cc in Sidx) {
+            B_S[, cc] <- rep(xi[[cc]], nrow(B_S))
+          }
+        }
+
+        # World S∪{j}: add feature j as known (value from x_i)
+        B_Sj <- B_S
+        B_Sj[, j] <- rep(xi[[j]], nrow(B_Sj))
+
+        # expected predictions under the two worlds
+        pred_S  <- mean(pred_fun(model, B_S))
+        pred_Sj <- mean(pred_fun(model, B_Sj))
+
+        # marginal contribution of feature j for this permutation
+        phi_i[j] <- phi_i[j] + (pred_Sj - pred_S)
+
+        # grow coalition S
+        Sidx <- c(Sidx, j)
+      }
+    }
+
+    # average over nsim
+    phi_i <- phi_i / nsim
+
+    # optional local accuracy adjustment (simple proportional shift)
+    if (isTRUE(adjust)) {
+      err <- (fx[i] - fnull) - sum(phi_i)
+      w <- abs(phi_i)
+      if (sum(w) == 0) {
+        # if all zeros, distribute equally
+        phi_i <- phi_i + err / p
+      } else {
+        phi_i <- phi_i + err * (w / sum(w))
+      }
+    }
+
+    phis[i, ] <- phi_i
+  }
+
+  attr(phis, "baseline") <- fnull
+  attr(phis, "fx") <- fx
+  class(phis) <- c("explain", class(phis))
+  phis
+}
+
+```
+
+
+```{r}
+pred_fun <- function(model, newdata) {
+  predict(model, newdata, type = "prob")[, "poisonous"]
+}
+
+# use simple_shap to calculate SHAP
+my_shap_values <- simple_shap(
+  model = mod,
+  X = train_dat[ , -1],  
+  x = test_dat[ , -1],
+  pred_fun = pred_fun,
+  nsim = 10
+)
+
+df_my <- my_shap_values |>
+  as.data.frame() |>
+  tidyr::pivot_longer(cols = dplyr::everything(),
+                      names_to = "variable", values_to = "value") |>
+  dplyr::mutate(value = abs(value)) |>
+  dplyr::group_by(variable) |>
+  dplyr::summarise(mean_simple = mean(value, na.rm = TRUE), .groups = "drop") |>
+  dplyr::arrange(dplyr::desc(mean_simple))
+
+df_fast <- shap_values |>
+  as.data.frame() |>
+  tidyr::pivot_longer(cols = dplyr::everything(),
+                      names_to = "variable", values_to = "value") |>
+  dplyr::mutate(value = abs(value)) |>
+  dplyr::group_by(variable) |>
+  dplyr::summarise(mean_fastshap = mean(value, na.rm = TRUE), .groups = "drop") |>
+  dplyr::arrange(dplyr::desc(mean_fastshap))
+
+comparison <- dplyr::left_join(df_fast, df_my, by = "variable")
+print(comparison)
+```
+
+# Algorithm & Math for `simple_shap` (RMarkdown)
+
+## Overview
+
+This function estimates **Shapley values** for one or more observations using the **Monte Carlo (MC) permutation** approach of Štrumbelj & Kononenko (2014), aligned with the semantics used in `fastshap`. For each observation $x$, we average the **marginal contribution** of each feature across many random feature orderings, with **background resampling** to approximate expectations. An optional **local accuracy adjustment** shifts the Shapley values so that they sum (approximately) to $f(x) - \text{baseline}$.
+
+---
+
+## Notation
+
+* $f(\cdot)$: the trained predictive model (wrapped by `pred_fun`).
+* $X \in \mathbb{R}^{n_{\text{bg}} \times p}$: **background** feature dataset (no target column).
+* $x \in \mathbb{R}^{1 \times p}$: a **single observation** to explain; for multiple rows, $x_i$ denotes the $i$-th row.
+* $p$: number of features; feature set $\mathcal{P} = \{1,\dots,p\}$.
+* $\pi$: a random **permutation** of the features.
+* $S \subseteq \mathcal{P}$: the set of features that **precede** a given feature $j$ in $\pi$.
+* $W$: a **bootstrap sample** (with replacement) of rows from $X$, used to approximate conditional expectations when features are “unknown”.
+* $B_S$, $B_{S \cup \{j\}}$: “Frankenstein” datasets where **known** features are set to $x$’s values and **unknown** features are taken from $W$.
+* $n_{\text{sim}}$ (code: `nsim`): number of MC permutations.
+
+---
+
+## Goal: Shapley Values for Local Explanation
+
+For a single observation $x$, the **Shapley value** $\phi_j(x)$ for feature $j$ is the average **marginal contribution** of $j$ over all permutations:
+
+$$
+\phi_j(x) \;=\; \mathbb{E}_{\pi}\Big[\, f\big(x_{S \cup \{j\}}\big) \;-\; f\big(x_{S}\big)\,\Big],
+$$
+
+where $S = \{k \in \mathcal{P} : k \text{ precedes } j \text{ in } \pi\}$.
+Here, $x_S$ denotes the **hybrid input** formed by fixing features in $S$ to their values in $x$ and “integrating out” the others.
+
+In practice, the **expectation over unknown features** is approximated with a bootstrap background:
+
+$$
+f(x_{S}) \;\approx\; \frac{1}{|W|} \sum_{w \in W} f\!\big( \text{Hybrid}(w; x, S) \big),
+$$
+
+and similarly for $x_{S \cup \{j\}}$.
+
+---
+
+## Hybrid (“Frankenstein”) Construction
+
+For a given coalition $S$ and a background row $w \in W$, define
+
+$$
+\text{Hybrid}(w; x, S)_k \;=\; 
+\begin{cases}
+x_k, & \text{if } k \in S,\\
+w_k, & \text{if } k \notin S.
+\end{cases}
+$$
+
+Then build the **two worlds** for the marginal of feature $j$:
+
+* **World $S$:** known $S$ take $x$’s values; others from $W$.
+* **World $S \cup \{j\}$:** same as $S$, plus feature $j$ set to $x_j$.
+
+Their **expected predictions** are approximated by averaging model outputs over all rows of $W$:
+
+$$
+\widehat{\mathbb{E}}\!\left[f(\cdot \mid S)\right] \;=\; \frac{1}{|W|}\sum_{w \in W} f\!\big(\text{Hybrid}(w; x, S)\big),\quad
+\widehat{\mathbb{E}}\!\left[f(\cdot \mid S\cup\{j\})\right] \;=\; \frac{1}{|W|}\sum_{w \in W} f\!\big(\text{Hybrid}(w; x, S\cup\{j\})\big).
+$$
+
+The **marginal contribution** in one permutation is
+
+$$
+\Delta_{j,\pi}(x) \;=\; 
+\widehat{\mathbb{E}}\!\left[f(\cdot \mid S\cup\{j\})\right] \;-\;
+\widehat{\mathbb{E}}\!\left[f(\cdot \mid S)\right].
+$$
+
+---
+
+## Monte Carlo Estimator
+
+Repeat over $n_{\text{sim}}$ random permutations $\pi^{(1)},\dots,\pi^{(n_{\text{sim}})}$, each with an independently bootstrapped background $W^{(s)}$. The MC estimator is:
+
+$$
+\widehat{\phi}_j(x) \;=\; \frac{1}{n_{\text{sim}}} \sum_{s=1}^{n_{\text{sim}}} \Delta_{j,\pi^{(s)}}(x).
+$$
+
+For **multiple observations** $x_1,\dots,x_m$, assemble into a matrix
+
+$$
+\Phi \in \mathbb{R}^{m \times p},\quad
+\Phi_{i,j} \;=\; \widehat{\phi}_j(x_i).
+$$
+
+---
+
+## Baseline and Local Accuracy
+
+* The function computes a **baseline**:
+
+$$
+\text{baseline} \;=\; f_{\emptyset} \;\equiv\; \frac{1}{|X|}\sum_{x' \in X} f(x'),
+$$
+
+denoted as $\,f_{\text{null}}$ (code: `fnull`).
+
+* The **local accuracy** (a.k.a. additivity) desirable property is
+
+$$
+\sum_{j=1}^p \phi_j(x) \;=\; f(x) \;-\; f_{\text{null}}.
+$$
+
+Because MC estimates can drift, we apply a **post-hoc adjustment**:
+
+$$
+\text{err}(x) \;=\; \big(f(x) - f_{\text{null}}\big) \;-\; \sum_{j=1}^p \widehat{\phi}_j(x).
+$$
+
+With nonnegative weights $w_j(x)$ (here $w_j = |\widehat{\phi}_j|$ as a simple heuristic), set
+
+$$
+\widehat{\phi}_j^{\,\text{adj}}(x) 
+\;=\; \widehat{\phi}_j(x) \;+\; \text{err}(x)\,\frac{w_j(x)}{\sum_{k=1}^p w_k(x)}.
+$$
+
+This preserves **relative magnitudes** and enforces $\sum_j \widehat{\phi}_j^{\,\text{adj}}(x) = f(x) - f_{\text{null}}$ (up to numerical error).
+
+---
+
+## End-to-End Flow (What the Function Does)
+
+1. **Inputs & checks**
+   Ensure $X$ and $x$ share the same columns/orders; coerce tibbles to data frames.
+
+2. **Compute $f(x)$ and baseline**
+
+   $$
+   f(x_i) \leftarrow \text{pred\_fun}(model, x_i),\quad 
+   f_{\text{null}} \leftarrow \frac{1}{|X|}\sum f(X).
+   $$
+
+3. **Initialize storage**
+   $\Phi \gets \mathbf{0}_{m \times p}$.
+
+4. **Loop over each row $x_i$**
+   For $i=1,\dots,m$:
+
+   * Initialize $\phi_i \gets \mathbf{0}_p$.
+   * For $s=1,\dots,n_{\text{sim}}$:
+
+     * Sample a permutation $\pi^{(s)}$.
+     * Bootstrap background $W^{(s)}$ from $X$（有放回）.
+     * Grow coalition $S$ along $\pi^{(s)}$. For each $j \in \pi^{(s)}$:
+
+       * Build $B_S$ and $B_{S\cup\{j\}}$ (known $S$ use $x_i$’s values; unknown from $W^{(s)}$).
+       * Compute $\Delta_{j,\pi^{(s)}}(x_i)$ as averaged prediction difference.
+       * Accumulate $\phi_i[j] \mathrel{+}= \Delta_{j,\pi^{(s)}}(x_i)$.
+   * Average: $\phi_i \leftarrow \phi_i / n_{\text{sim}}$.
+   * **Optional local accuracy adjust**:
+
+     $$
+     \phi_i \leftarrow \phi_i + \text{err}(x_i)\,\frac{w(\phi_i)}{\sum w(\phi_i)}.
+     $$
+   * Set $\Phi_{i,\cdot} \leftarrow \phi_i$.
+
+5. **Return $\Phi$** with attributes
+   Attach `baseline = fnull`, `fx = f(x)`; set class for downstream plotting.
+
+---
+
+## Classification vs. Regression
+
+* **Regression:** $f(\cdot)$ returns numeric predictions.
+* **Binary classification:** $f(\cdot)$ returns the **probability** for the reference class (e.g., $P(Y=\text{“poisonous”}\mid X)$).
+  The formulation above applies identically; only the interpretation of $f$ changes.
+
+---
+
+## Practical Considerations
+
+* **Stability:** Increase $n_{\text{sim}}$ to reduce MC variance.
+* **Background choice:** $X$ should represent the data distribution you regard as the reference (often training data).
+* **Complexity:** Roughly $O\!\big(m \cdot n_{\text{sim}} \cdot p \cdot C_{\text{pred}}\big)$, where $C_{\text{pred}}$ is the average cost to predict on two Frankenstein batches (each of size $|W|$).
+* **Adjustment weights:** This implementation uses $w_j = |\widehat{\phi}_j|$ for simplicity; variance-weighted schemes (as in `fastshap`) can be substituted for more principled adjustments.
+
+---
+
+## Output (What You Get)
+
+* A matrix $\Phi \in \mathbb{R}^{m \times p}$ of (adjusted) Shapley values.
+* Attribute `"baseline"` equals $f_{\text{null}}$.
+* Attribute `"fx"` stores the vector $[f(x_1),\dots,f(x_m)]$.
+  These are exactly what you need to compute **global importance** (e.g., $\mathbb{E}|\phi_j|$) and to visualize with packages like `shapviz`.
