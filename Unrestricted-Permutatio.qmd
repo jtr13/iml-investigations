@@ -306,6 +306,8 @@ ggplot(long_df, aes(x = feature, y = avg_rank, color = model, group = model)) +
 
 ```
 
+
+
 Similar as Fig1 in the paper. 
 
 To investigate how feature correlation affects model-based variable importance (VI) estimation, we simulate a synthetic regression task with $n = 2000$ observations and $p = 10$ features. The outcome variable $y$ is generated as:
@@ -655,7 +657,9 @@ all_results <- rbind(results_independent, results_correlated)
 
 ```
 
-```{r}
+
+
+```{r, fig.width=12, fig.height=6}
 
 summary_results <- all_results |>
   group_by(rho, model, method, feature) |>
@@ -683,7 +687,7 @@ ggplot(summary_results, aes(x = feature_num, y = mean_rank, color = method, grou
   geom_point(linewidth = 2) +
   facet_grid(rho_label ~ model) +
   scale_x_continuous(breaks = 1:10, labels = paste0("x", 1:10)) +
-  scale_y_reverse(limits = c(10, 1)) +  # 1 = most important
+  scale_y_continuous(breaks = 1:10, trans = "reverse", limits = c(10, 1)) +
   scale_color_manual(values = method_colors) +
   labs(
     title = "Variable Importance Rankings Across Methods and Correlation Settings",
@@ -700,7 +704,8 @@ ggplot(summary_results, aes(x = feature_num, y = mean_rank, color = method, grou
 
 ```
 
-The reproduced figure successfully replicates the overall structure and trends of Figure 7 from the original paper. It shows the average variable importance rankings across six methods (C, C⊥, C↓, D, π, π⊥) under two correlation settings (ρ = 0 and ρ = 0.9) and three model types (LM, NN, RF).
+
+The reproduced figure successfully replicates the overall structure and trends of Figure 7 from the original paper. It shows the **average variable importance rankings** across six methods (C, C⊥, C↓, D, π, π⊥) under two correlation settings (ρ = 0 and ρ = 0.9) and three model types (LM, NN, RF).
 
 The key patterns—such as features 7–10 being ranked higher in importance and the method-specific curves varying across models—are consistent with the original results. In particular, the Random Forest and Linear Model panels align well with the published figure.
 
@@ -801,6 +806,32 @@ ggplot(importance_df_long, aes(x = Rank, y = reorder(Feature, Rank), fill = Meth
   theme_minimal()
 
 ```
+
+
+
+
+```{r}
+ggplot(importance_df_long, aes(x = Rank, y = reorder(Feature, Rank), color = Method)) +
+  geom_point(size = 3) +
+  geom_text(aes(label = Rank), hjust = -0.4, size = 3) +
+  labs(
+    title = "Comparison of Feature Importance Rankings (OOB Perm vs VIπᴸⱼ)",
+    x = "Rank (lower = more important)",
+    y = "Feature"
+  ) +
+  scale_color_manual(
+    name = NULL,
+    values = c("#1f77b4", "#ff7f0e"),
+    labels = c("OOB Permutation", "VIπᴸⱼ Retraining")
+  ) +
+  scale_x_reverse(breaks = 1:max(importance_df_long$Rank)) +
+  theme_minimal(base_size = 13) +
+  theme(
+    legend.title = element_blank(),
+    axis.text.y = element_text(size = 11)
+  )
+```
+
 
 | **Feature**             | **OOB (Blue)**       | **VIπᴸⱼ (Orange)**      | **Analysis**                                                                                                 |
 | ----------------------- | -------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------ |
